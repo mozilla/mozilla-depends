@@ -1,0 +1,27 @@
+{
+  "name": "mozdepends",
+  "version": "0.0.1a1",
+  "description": "Dummy package for installing mozilla-depends node dependencies",
+  "dependencies": {
+    "retire": "1.4"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "retire": "retire",
+    "eslint": "eslint",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cr/webextaware.git"
+  },
+  "keywords": [
+    "dummy"
+  ],
+  "author": "cr@mozilla.com",
+  "license": "MPL-2.0",
+  "bugs": {
+    "url": "https://github.com/cr/webextaware/issues"
+  },
+  "homepage": "https://github.com/cr/webextaware#readme"
+}
