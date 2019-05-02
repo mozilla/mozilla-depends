@@ -57,7 +57,9 @@ class RustPackage(object):
     def repository(self):
         try:
             return self.toml.get("package")["repository"]
-        except KeyError or TypeError:
+        except KeyError:
+            return None
+        except TypeError:
             return None
 
     @property
@@ -87,15 +89,16 @@ class RustPackage(object):
 class DependencyDescriptor(object):
 
     def __init__(self, detector, data: dict):
-        self.sourcestamp = data["sourcestamp"]
-        self.name = data["name"]
-        self.version = data["version"]
-        self.repo_top_directory = data["repo_top_directory"]
-        self.repo_files = data["repo_files"]
-        self.target_store = data["target_store"]
+        self.detector = detector.name
         self.dependants = data["dependants"]
         self.dependencies = data["dependencies"]
-        self.detector = detector.name
+        self.name = data["name"]
+        self.repo_top_directory = data["repo_top_directory"]
+        self.repo_files = data["repo_files"]
+        self.sourcestamp = data["sourcestamp"]
+        self.target_store = data["target_store"]
+        self.upstream_ref = data["upstream_ref"]
+        self.version = data["version"]
 
     def __str__(self):
         return f"<DependencyDescriptor from {self.detector}: `{self.target_store}: {self.name}-{self.version}`>"
@@ -141,7 +144,7 @@ class CargoTomlDependencyDetector(DependencyDetector):
 
     def prepare(self):
         with (self.hg.path / "Cargo.lock").open() as f:
-            self.state = { "Cargo.lock": toml.load(f) }
+            self.state = {"Cargo.lock": toml.load(f)}
         self.state["deps"] = {}
         for p in self.state["Cargo.lock"]["package"]:
             key = p["name"] + "-" + p["version"]
@@ -176,6 +179,7 @@ class CargoTomlDependencyDetector(DependencyDetector):
             "dependants": [],
             "dependencies": deps,
             "sourcestamp": self.hg.source_stamp,
+            "upstream_ref": rp.repository,
         })
         yield dd
 
@@ -206,11 +210,13 @@ class MozYamlDependencyDetector(DependencyDetector):
                     "dependants": [],
                     "dependencies": [],
                     "sourcestamp": self.hg.source_stamp,
+                    "upstream_ref": None,
                 })
                 yield dd
             except yaml.scanner.ScannerError:
                 logger.error(f"Broken YAML in {str(file_path)}. Ignoring file")
                 yield None
+
 
 class RetireDependencyDetector(DependencyDetector):
 
@@ -281,6 +287,7 @@ class RetireDependencyDetector(DependencyDetector):
                 "dependants": [],
                 "dependencies": [],
                 "sourcestamp": self.hg.source_stamp,
+                "upstream_ref": None,
             })
             yield dd
 
@@ -297,11 +304,11 @@ class ThirdPartyAlertDetector(DependencyDetector):
         logger.debug(f"Fetching {self.url}")
         lines = []
         with urllib.request.urlopen(self.url) as response:
-            for l in response.readlines():
+            for line in response.readlines():
                 # TODO: un-comment commented JSON lines that are valuable
-                l = l.decode("utf-8")
-                if not l.strip().startswith("#"):
-                    lines.append(l)
+                line = line.decode("utf-8")
+                if not line.strip().startswith("#"):
+                    lines.append(line)
 
         response = "".join(lines)
         logger.debug("File content: `%s`" % repr(response))
@@ -327,6 +334,7 @@ class ThirdPartyAlertDetector(DependencyDetector):
                 "dependants": [],
                 "dependencies": [],
                 "sourcestamp": self.hg.source_stamp,
+                "upstream_ref": None,
             })
             yield dd
         elif loc.is_file():
@@ -339,6 +347,7 @@ class ThirdPartyAlertDetector(DependencyDetector):
                 "dependants": [],
                 "dependencies": [],
                 "sourcestamp": self.hg.source_stamp,
+                "upstream_ref": None,
             })
             yield dd
         else:
@@ -355,6 +364,7 @@ class ThirdPartyAlertDetector(DependencyDetector):
                     "dependants": [],
                     "dependencies": [],
                     "sourcestamp": self.hg.source_stamp,
+                    "upstream_ref": None,
                 })
                 yield dd
             else:
@@ -367,6 +377,7 @@ class ThirdPartyAlertDetector(DependencyDetector):
                     "dependants": [],
                     "dependencies": [],
                     "sourcestamp": self.hg.source_stamp,
+                    "upstream_ref": None,
                 })
                 yield dd
 
@@ -397,6 +408,7 @@ class ThirdPartyPathsDetector(DependencyDetector):
                 "dependants": [],
                 "dependencies": [],
                 "sourcestamp": self.hg.source_stamp,
+                "upstream_ref": None,
             })
             yield dd
         elif p.is_file():
@@ -409,6 +421,7 @@ class ThirdPartyPathsDetector(DependencyDetector):
                 "dependants": [],
                 "dependencies": [],
                 "sourcestamp": self.hg.source_stamp,
+                "upstream_ref": None,
             })
             yield dd
         else:
@@ -456,7 +469,8 @@ class ThirdPartyPathsDetector(DependencyDetector):
 #     "latest_version_re" : "<relative-time datetime=\"([^\"]+)\"",
 #
 #     "current_version_fetch_type" : "html_re",
-#     "current_version_fetch_location" : "https://hg.mozilla.org/mozilla-central/raw-file/tip/modules/fdlibm/README.mozilla",
+#     "current_version_fetch_location" : "https://hg.mozilla.org/mozilla-central/
+#     raw-file/tip/modules/fdlibm/README.mozilla",
 #     "current_version_re" : "Current version: \\[commit [0-9a-fA-F]{40} \\(([^\\)]+)\\)",
 #     "current_version_date_format_string" : "%Y-%m-%dT%H:%M:%SZ",
 #
@@ -466,7 +480,8 @@ class ThirdPartyPathsDetector(DependencyDetector):
 
 
 # """
-#  {'file': '/home/cr/src/mozilla-unified/mobile/android/tests/browser/chrome/tp5/twitter.com/ajax.googleapis.com/ajax/libs/jquery/1.3.0/jquery.min.js',
+#  {'file': '/home/cr/src/mozilla-unified/mobile/android/tests/browser/chrome/tp5/
+#  twitter.com/ajax.googleapis.com/ajax/libs/jquery/1.3.0/jquery.min.js',
 #   'results': [{'component': 'jquery',
 #                'detection': 'filecontent',
 #                'version': '1.3',

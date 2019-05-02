@@ -10,8 +10,9 @@ import os
 
 from ..dependency import CargoTomlDependencyDetector, MozYamlDependencyDetector, \
     RetireDependencyDetector, ThirdPartyAlertDetector
-
 from .basecommand import BaseCommand
+from ..component import detect_components
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,8 +45,8 @@ class DetectCommand(BaseCommand):
         # pp = PrettyPrinter(width=120).pprint
 
         for detector in ThirdPartyAlertDetector, CargoTomlDependencyDetector, MozYamlDependencyDetector, \
-                        RetireDependencyDetector:
-        # for detector in [ThirdPartyAlertDetector]:
+                RetireDependencyDetector:
+            # for detector in [ThirdPartyAlertDetector]:
             det = detector(repo_dir)
             det.prepare()
             for dependency in det.run():
@@ -53,6 +54,10 @@ class DetectCommand(BaseCommand):
                 deps.append(dependency)
 
         logger.info(f"Detectors returned {len(deps)} dependencies (including duplicates)")
+
+        comps = []
+        for c in detect_components(deps):
+            comps.append(c)
 
         from IPython import embed
         embed()
