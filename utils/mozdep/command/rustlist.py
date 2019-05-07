@@ -8,7 +8,6 @@ import logging
 
 from ..dependency import CargoTomlDependencyDetector
 from .basecommand import BaseCommand
-from ..component import detect_components
 
 logger = logging.getLogger(__name__)
 

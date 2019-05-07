@@ -259,6 +259,7 @@ class RetireDependencyDetector(DependencyDetector):
             "--outputformat", "json",
             "--outputpath", "/dev/stdout",
             "--path", str(self.hg.path),
+            "--ignore", str(self.hg.path / ".hg"),
             "--verbose"
         ]
         logger.debug("Running shell command `%s`" % " ".join(cmd))
@@ -269,7 +270,7 @@ class RetireDependencyDetector(DependencyDetector):
         except decoder.JSONDecodeError:
             logger.warning("retirejs call failed, probably due to network failure")
             logger.warning("Failing output is `%s`" % cmd_output)
-            return
+            raise Exception("Retire.js failed to run, likely due to network error")
         for r in result["data"]:
             for d in self.as_dependency_descriptor(r):
                 if d is not None:
@@ -504,3 +505,14 @@ class ThirdPartyPathsDetector(DependencyDetector):
 #                                              'http://research.insecurelabs.org/jquery/test/'],
 #                                     'severity': 'medium'}]}]},
 # """
+
+
+def validate(deps: Iterator[DependencyDescriptor]):
+    for d in deps:
+        logger.debug(f"Validating {d.name}-{d.version}")
+
+        if not d.repo_top_directory.is_dir():
+            logger.warning(f"{d.name}-{d.version}: invalid repo top directory {d.repo_top_directory}")
+        for f in d.repo_files:
+            if not f.is_file():
+                logger.warning(f"{d.name}-{d.version}: invalid file reference to {d.repo_top_directory}")

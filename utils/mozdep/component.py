@@ -8,7 +8,7 @@ from logging import getLogger
 from os.path import realpath
 from pathlib import Path
 from subprocess import check_output
-from typing import Iterator, Iterable, List
+from typing import Iterator, Iterable
 
 from .dependency import DependencyDescriptor
 
@@ -64,10 +64,11 @@ def call_mach_and_parse(chunk: Iterator[Path]) -> dict:
     # Find mach executable somewhere up the tree
     mach_path = None
     first_file = next(chunk).resolve()
-    f = first_file.parent
+    f = first_file
     root = Path("/")
 
     while mach_path is None and f != root:
+        f = f.parent
         if (f / "mach").is_file() and (f / "moz.configure").is_file():
             mach_path = f / "mach"
     if mach_path is None:

@@ -72,29 +72,31 @@ def dependencies_fixture():
     d = DummyDetector()
     deps = [
         DependencyDescriptor(d, {
-            "name": "TestDependency1",
-            "version": None,
-            "repo_top_directory": repo_path,
-            "target_store": None,
             "dependants": [],
             "dependencies": [],
-            "sourcestamp": None,
+            "name": "TestDependency1",
             "repo_files": [
                 repo_path / "mach"
-            ]
+            ],
+            "repo_top_directory": repo_path,
+            "sourcestamp": None,
+            "target_store": None,
+            "upstream_ref": None,
+            "version": None,
         }),
         DependencyDescriptor(d, {
-            "name": "TestDependency2",
-            "version": None,
-            "repo_top_directory": repo_path,
-            "target_store": None,
             "dependants": [],
             "dependencies": [],
-            "sourcestamp": None,
+            "name": "TestDependency2",
             "repo_files": [
                 repo_path / "mach",
                 repo_path / "layout/base/nsFrameManager.h"
-            ]
+            ],
+            "repo_top_directory": repo_path,
+            "target_store": None,
+            "sourcestamp": None,
+            "upstream_ref": None,
+            "version": None,
         }),
     ]
     return deps
@@ -120,10 +122,10 @@ def test_with_dependecies(dummy_deps):
     assert b.name == "Firefox Build System :: Mach Core"
     logger.error(a.dependencies)
     logger.error(dummy_deps)
-    assert a.dependencies == {[dummy_deps[1]]}
+    assert a.dependencies == [dummy_deps[1]]
     assert a.files == set()  # FIXME: this shouldn't
 
     logger.error(b.dependencies)
     logger.error(dummy_deps)
-    assert b.dependencies == set(dummy_deps)
+    assert b.dependencies == [dummy_deps]
     assert b.files == set()  # FIXME: this shouldn't

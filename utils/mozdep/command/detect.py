@@ -9,7 +9,7 @@ from pprint import PrettyPrinter
 import os
 
 from ..dependency import CargoTomlDependencyDetector, MozYamlDependencyDetector, \
-    RetireDependencyDetector, ThirdPartyAlertDetector
+    RetireDependencyDetector, ThirdPartyAlertDetector, validate
 from .basecommand import BaseCommand
 from ..component import detect_components
 
@@ -55,11 +55,16 @@ class DetectCommand(BaseCommand):
 
         logger.info(f"Detectors returned {len(deps)} dependencies (including duplicates)")
 
-        comps = []
-        for c in detect_components(deps):
-            comps.append(c)
+        validate(deps)
 
         from IPython import embed
         embed()
+
+        # comps = []
+        # for c in detect_components(deps[:50]):
+        #     comps.append(c)
+        #
+        # from IPython import embed
+        # embed()
 
         return 0
