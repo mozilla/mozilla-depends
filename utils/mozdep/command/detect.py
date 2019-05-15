@@ -5,13 +5,13 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import logging
-from pprint import PrettyPrinter
-import os
+from csv import DictWriter
+from pathlib import Path
 
-from ..dependency import CargoTomlDependencyDetector, MozYamlDependencyDetector, \
-    RetireDependencyDetector, ThirdPartyAlertDetector, validate
 from .basecommand import BaseCommand
 from ..component import detect_components
+from ..detectors import run_all
+from ..knowledgegraph import KnowledgeGraph
 
 logger = logging.getLogger(__name__)
 
@@ -32,39 +32,73 @@ class DetectCommand(BaseCommand):
         :param parser: parent argparser to add to
         :return: None
         """
-        pass
+        parser.add_argument("-c", "--csv",
+                            help="path to CSV export file",
+                            type=Path,
+                            action="store")
 
     def run(self) -> int:
         repo_dir = self.args.tree.resolve()
 
-        deps = []
+        g = KnowledgeGraph()
 
-        # print(os.getcwd())
-        # print("\n".join(os.listdir(repo_dir)))
+        run_all(repo_dir, g)
 
-        # pp = PrettyPrinter(width=120).pprint
+        file_count = len(g.V().Has("ns:fx.mc.file.path").All())
+        dep_count = len(g.V().Has("ns:fx.mc.lib.dep.name").All())
+        logger.info(f"Detectors found {file_count} files in {dep_count} dependencies (including duplicates)")
 
-        for detector in ThirdPartyAlertDetector, CargoTomlDependencyDetector, MozYamlDependencyDetector, \
-                RetireDependencyDetector:
-            # for detector in [ThirdPartyAlertDetector]:
-            det = detector(repo_dir)
-            det.prepare()
-            for dependency in det.run():
-                print(str(dependency))
-                deps.append(dependency)
+        detect_components(repo_dir, g)
 
-        logger.info(f"Detectors returned {len(deps)} dependencies (including duplicates)")
+        if self.args.csv:
+            field_names = [
+                "Name",
+                "Version",
+                "Language",
+                "Upstream Version",
+                "Upstream Repo",
+                "Detector",
+                "Component",
+                "Files"
+            ]
+            with open(self.args.csv, "w", newline="") as f:
+                c = DictWriter(f, field_names)
+                c.writeheader()
+                for dep_v in g.V().In("ns:fx.mc.lib.dep.name").AllV():
+                    row = dict(zip(field_names, ["unknown"] * len(field_names)))
+                    try:
+                        row["Name"] = g.V(dep_v).Out("ns:fx.mc.lib.dep.name").All()[0]
+                    except IndexError:
+                        pass
+                    try:
+                        row["Version"] = g.V(dep_v).Out("ns:version.spec").All()[0]
+                    except IndexError:
+                        pass
+                    try:
+                        row["Language"] = g.V(dep_v).Out("ns:language.name").All()[0]
+                    except IndexError:
+                        pass
+                    try:
+                        row["Upstream Repo"] = g.V(dep_v).Out("ns:gh.repo.url").All()[0]
+                    except IndexError:
+                        pass
+                    try:
+                        row["Upstream Version"] = g.V(dep_v).Out("ns:gh.repo.version").All()[0]
+                    except IndexError:
+                        pass
+                    try:
+                        row["Detector"] = g.V(dep_v).Out("ns:fx.mc.detector.name").All()[0]
+                    except IndexError:
+                        pass
 
-        validate(deps)
+                    file_vs = g.V(dep_v).In("ns:fx.mc.file.part_of").AllV()
+                    file_names = g.V(file_vs).Out("ns:fx.mc.file.path").All()
+                    row["Files"] = "\n".join(file_names)
 
-        from IPython import embed
-        embed()
+                    component_names = g.V(file_vs).Out("ns:bz.component.name").All()
+                    row["Component"] = ";".join(component_names)
 
-        # comps = []
-        # for c in detect_components(deps[:50]):
-        #     comps.append(c)
-        #
-        # from IPython import embed
-        # embed()
+                    assert set(row.keys()) == set(field_names)
+                    c.writerow(row)
 
         return 0

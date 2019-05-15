@@ -4,140 +4,55 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from abc import ABC, abstractmethod
+from copy import deepcopy
 import logging
 from random import choices
 from string import ascii_letters, digits
 from json import dumps, loads
-from typing import Iterator
+from typing import Iterator, List, Set
 
 logger = logging.getLogger(__name__)
 
 
-class OldKnowledgeGraph(object):
+class Vertex(object):
+    """A regular graph vertex associated with one or more edges"""
 
-    class Vertex(object):
-
-        def __init__(self, mid: str, name: str):
-            self.mid = mid
-            self.name = name
-
-    class Edge(object):
-
-        def __init__(self, mid: str, name: str, left: str, right: str):
-            self.mid = mid
-            self.name = name
-            self.left = left
-            self.right = right
-
-    def __init__(self):
-        self.__mid_index = dict()
-        self.__v = dict()
-        self.__e = dict()
-
-    def __contains__(self, mid_or_vertex_or_edge: str or Vertex or Edge):
-        # return mid not in self.__v and mid not in self.__e
-        if type(mid_or_vertex_or_edge) is str:
-            return mid_or_vertex_or_edge in self.__mid_index
-        elif type(mid_or_vertex_or_edge) is self.Vertex or type(mid_or_vertex_or_edge) is self.Edge:
-            return mid_or_vertex_or_edge.mid in self.__mid_index
+    def __init__(self, graph, mid_or_edge):
+        self.g = graph
+        if type(mid_or_edge) is str:
+            self.mid = mid_or_edge
         else:
-            raise Exception(f"KnowledgeGraph can't contain `{repr(mid_or_vertex_or_edge)}`")
+            self.mid = mid_or_edge.mid
 
-    @staticmethod
-    def __random_mid(length: int = 10) -> str:
-        """Generate random machine ID"""
-        return "".join(choices(ascii_letters + digits, k=length))
+    def __iter__(self) -> Iterator["Edge"]:
+        for name, right_set in self.g.mid_map[self.mid].items():
+            for right in right_set:
+                yield Edge(self.g, mid=self.mid, name=name, right=right)
 
-    def generate_mid(self) -> str:
-        for _ in range(4):
-            mid = self.__random_mid()
-            if mid not in self:
-                return mid
-        raise Exception("KnowledgeGraph is full. Too many retries for generating MID.")
+    def __getitem__(self, item):
+        return self.g.mid_map[self.mid][item]
 
-    def add_vertex(self, name: str) -> Vertex:
-        v = self.Vertex(self.generate_mid(), name)
-        self.__v[v.mid] = v
-        self.__mid_index[v.mid] = v
-        return v
+    def add(self, name: str, right: "Vertex" or "Sink" or str) -> "Vertex":
+        self.g.add(name, right, mid_or_vertex=self.mid)
+        return self
 
-    def add_edge(self, name: str, left: Vertex, right: Vertex) -> Edge:
-        e = self.Edge(self.generate_mid(), name, left.mid, right.mid)
-        self.__e[e.mid] = e
-        self.__mid_index[e.mid] = e
-        return e
 
-    def iter_vertices(self, copy=False) -> Iterator[Vertex]:
-        if not copy:
-            yield from self.__v.values()
+class Sink(object):
+    """A regular graph vertex associated with one or more edges"""
+
+    def __init__(self, graph, right_or_edge):
+        self.g = graph
+        if type(right_or_edge) is str:
+            self.mid = right_or_edge
         else:
-            for v in self.__v.values():
-                yield self.Vertex(v.mid, v.name)
+            self.mid = right_or_edge.mid
 
-    def iter_edges(self, copy=False) -> Iterator[Edge]:
-        if not copy:
-            yield from self.__e.values()
-        else:
-            for e in self.__e.values():
-                yield self.Edge(e.mid, e.name, e.left, e.right)
+    def __iter__(self) -> Iterator["Edge"]:
+        yield from ()
 
-    def as_dict(self) -> dict:
-        """Return deep copy dict representation of the graph"""
-        r = {
-            "vertices": {},
-            "edges": {}
-        }
-        for v in self.__v.values():
-            r["vertices"][v.mid] = {
-                "mid": v.mid,
-                "name": v.name
-            }
-        for e in self.__e.values():
-            r["edges"][e.mid] = {
-                "mid": e.mid,
-                "name": e.name,
-                "left": e.left,
-                "right": e.right
-            }
-        return r
-
-    def as_json(self, pretty=False) -> str:
-        """Return JSON representation of the graph"""
-        if pretty:
-            return dumps(self.as_dict(), indent=4, pretty=True)
-        else:
-            return dumps(self.as_dict())
-
-    def validate(self):
-        assert len(self.__mid_index) == len(self.__v) + len(self.__e)
-        for v in self.iter_vertices(copy=False):
-            assert v.mid in self.__v
-            assert v.mid not in self.__e
-            assert v.mid in self.__mid_index
-        for e in self.iter_edges(copy=False):
-            assert e.mid in self.__e
-            assert e.mid not in self.__v
-            assert e.mid in self.__mid_index
-            assert e.left in self.__v
-            assert e.right in self.__v
-
-    def from_dict(self, data: dict, validate: bool = True):
-        self.__mid_index = {}
-        self.__v = {}
-        self.__e = {}
-        for v in data["vertices"]:
-            n = self.Vertex(v["mid"], v["name"])
-            self.__v[n.mid] = n
-            self.__mid_index[n.mid] = n
-        for e in data["edges"]:
-            n = self.Edge(e["mid"], e["name"], e["left"], e["right"])
-            self.__e[n.mid] = n
-            self.__mid_index[n.mid] = n
-        if validate:
-            self.validate()
-
-    def from_json(self, json_str: str):
-        self.from_dict(loads(json_str))
+    def add(self, name: str, right: "Vertex" or "Sink" or str) -> "Vertex":
+        raise NotImplemented
 
 
 class Edge(object):
@@ -148,70 +63,29 @@ class Edge(object):
         self.mid = mid
         self.right = right
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<Edge(graph=0x{hex(id(self.g))} mid={self.mid} name={self.name} right={self.right})>"
 
+    def left(self) -> "Vertex":
+        return Vertex(self.g, self.mid)
 
-class Vertex(object):
-
-    def __init__(self, graph, mid_or_edge):
-        self.g = graph
-        if type(mid_or_edge) is str:
-            self.mid = mid_or_edge
+    def r(self) -> "Vertex" or "Sink":
+        if self.g.is_mid(self.right):
+            return Vertex(self.g, self.right)
         else:
-            self.mid = mid_or_edge.mid
-
-    def edges(self):
-        yield from self.g.mid_map[self.mid].values()
+            return Sink(self.g, self.right)
 
 
-# class EdgeQuery(object):
-#     def __init__(self, graph, pipe: Iterator[Edge]):
-#         self.g = graph
-#         self.p = pipe
-#
-#     def __iter__(self):
-#         yield from self.p
-#
-#     def __has_yield(self, name: str, value: str):
-#         for e in self.p:
-#             if e.name == name and e.right == value:
-#                 yield e
-#
-#     def Has(self, name: str, value: str):
-#         """Yield all edges from pipe that have field `name` like `value`"""
-#         return EdgeQuery(self.g, pipe=self.__has_yield(name, value))
-#
-#     def __out_yield(self, via):
-#         yielded = set()
-#         for in_e in self.p:
-#             for name, out_e in self.g.right_map[in_e.right].items():
-#                 if via is None or name == via:
-#                     if out_e not in yielded:
-#                         yielded.add(out_e)
-#                         yield out_e
-#
-#     def Out(self, via: str or None = None):
-#         """Follow all vertices that this one points to, via edges named `via`"""
-#         return EdgeQuery(self.g, pipe=self.__out_yield(via))
-#
-#     def __in_yield(self, via):
-#         yielded = set()
-#         for in_e in self.p:
-#             for name, mid_set in self.g.right_map[in_e.right].items():
-#                 if via is None or name == via:
-#                     for mid in mid_set:
-#                         out_e = self.g.mid_map[mid][name]
-#                         if out_e not in yielded:
-#                             yielded.add(out_e)
-#                             yield out_e
-#
-#     def In(self, via: str or None = None):
-#         """Follow all vertices that point to this one, via edges named `via`"""
-#         return EdgeQuery(self.g, pipe=self.__in_yield(via))
-#
-#     def All(self):
-#         return list(self)
+class EdgeQuery(object):
+    def __init__(self, graph, pipe: Iterator[Edge]):
+        self.g = graph
+        self.p = pipe
+
+    def __iter__(self) -> Iterator[Edge]:
+        yield from self.p
+
+    def All(self) -> List[Edge]:
+        return list(self)
 
 
 class VertexQuery(object):
@@ -219,51 +93,54 @@ class VertexQuery(object):
         self.g = graph
         self.p = pipe
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         yield from self.p
 
-    def __has_yield(self, name: str, value_or_vertex: str or Vertex):
-        if type(value_or_vertex) is Vertex:
-            value = value_or_vertex.mid
+    def __has_yield(self, name: str, right_or_vertex: str or Vertex or None) -> Iterator[str]:
+        if right_or_vertex is None:
+            right = None
+        elif type(right_or_vertex) is Vertex:
+            right = right_or_vertex.mid
         else:
-            value = value_or_vertex
+            right = right_or_vertex
         for mid_or_right in self:
-            if mid_or_right in self.g.mid_map:
+            if self.g.is_mid(mid_or_right):
                 # We have vertice's mid, so iterate edges
-                for e in self.g.mid_map[mid_or_right].values():
-                    if e.name == name and e.right == value:
-                        yield mid_or_right
-                        break
-            elif mid_or_right in self.g.right_map:
+                for edge_name, right_set in self.g.mid_map[mid_or_right].items():
+                    if edge_name == name:
+                        if right is None or right in right_set:
+                            yield mid_or_right
+            elif self.g.is_right(mid_or_right):
                 # Nothing to do if it's a pure right value
                 continue
             else:
                 raise Exception("まさか！")
 
-    def Has(self, name: str, value_or_vertex: str or Vertex):
+    def Has(self, name: str, value_or_vertex: str or Vertex or None = None) -> "VertexQuery":
         """Only select vertices that have an edge with `name` pointing to `value_or_vertex`"""
         return VertexQuery(self.g, pipe=self.__has_yield(name, value_or_vertex))
 
-    def __out_yield(self, via: str):
+    def __out_yield(self, via: str) -> Iterator[str]:
         yielded = set()
         for mid_or_right in self:
-            if mid_or_right in self.g.mid_map:
-                for name, e in self.g.mid_map[mid_or_right].items():
+            if self.g.is_mid(mid_or_right):
+                for name, right_set in self.g.mid_map[mid_or_right].items():
                     if via is None or name == via:
-                        if e.right not in yielded:
-                            yielded.add(e.right)
-                            yield e.right
-            elif mid_or_right in self.g.right_map:
+                        for right in right_set:
+                            if right not in yielded:
+                                yielded.add(right)
+                                yield right
+            elif self.g.is_right(mid_or_right):
                 # Nothing to do if it's a pure right value
                 continue
             else:
                 raise Exception("まさか！")
 
-    def Out(self, via: str or None = None):
+    def Out(self, via: str or None = None) -> "VertexQuery":
         """Follow all vertices that this one points to, via edges named `via`"""
         return VertexQuery(self.g, pipe=self.__out_yield(via))
 
-    def __in_yield(self, via: str):
+    def __in_yield(self, via: str) -> Iterator[str]:
         yielded = set()
         for mid_or_right in self:
             if mid_or_right in self.g.right_map:
@@ -275,12 +152,39 @@ class VertexQuery(object):
                                 yielded.add(mid)
                                 yield mid
 
-    def In(self, via: str or None = None):
+    def In(self, via: str or None = None) -> "VertexQuery":
         """Follow all vertices that point to this one, via edges named `via`"""
         return VertexQuery(self.g, pipe=self.__in_yield(via))
 
-    def All(self):
-        return set(self)
+    def All(self) -> List[str]:
+        return list(self)
+
+    def AllV(self) -> List[Vertex or Sink]:
+        all_v = list()
+        for mid_or_right in self:
+            if self.g.is_mid(mid_or_right):
+                all_v.append(Vertex(self.g, mid_or_right))
+            else:
+                all_v.append(Sink(self.g, mid_or_right))
+        return all_v
+
+    def GetLimit(self, n: int) -> List[str]:
+        r = []
+        count = 0
+        for mid in self:
+            r.append(mid)
+            if count >= n:
+                break
+        return r
+
+    def GetLimitV(self, n: int) -> List[Vertex]:
+        r = []
+        count = 0
+        for mid in self:
+            r.append(Vertex(self.g, mid))
+            if count >= n:
+                break
+        return r
 
 
 class KnowledgeGraph(object):
@@ -304,27 +208,60 @@ class KnowledgeGraph(object):
                 return mid
         raise Exception("KnowledgeGraph MID space exhausted. Too many retries for generating MID.")
 
-    def add(self, name: str, right: str, *, mid: str or None = None) -> Edge:
-        mid = mid or self.generate_mid()
-        e = Edge(self, name=name, right=right, mid=mid)
-        if e.mid not in self.mid_map:
-            self.mid_map[e.mid] = dict()
-        assert e.name not in self.mid_map[e.mid]  # FIXME: handle this gracefully by deleting existing edge from rights
-        self.mid_map[e.mid][e.name] = e
-        if e.right not in self.right_map:
-            self.right_map[e.right] = dict()
-        if e.name not in self.right_map[e.right]:
-            self.right_map[e.right][e.name] = set()
-        self.right_map[e.right][e.name].add(e.mid)
-        return e
+    def is_mid(self, mid: str) -> bool:
+        return mid.startswith("mid:") and mid in self.mid_map
+
+    def is_right(self, right: str) -> bool:
+        return right in self.right_map
+
+    def get_v(self, mid_or_right) -> Vertex or str:
+        if mid_or_right in self.mid_map:
+            return Vertex(self, mid_or_right)
+        else:
+            return mid_or_right
+
+    def add(self, name: str, right_or_vertex: str or Vertex, *, mid_or_vertex: str or Vertex or None = None) -> Vertex:
+        # logger.warn(name, mid_or_vertex, right_or_vertex)
+        # assert type(name) is str
+        # assert type(mid_or_vertex) is str or type(mid_or_vertex) is Vertex or mid_or_vertex is None
+        # assert type(right_or_vertex) is str or type(right_or_vertex) is Vertex
+
+        mid_or_vertex = mid_or_vertex or self.generate_mid()
+        if type(mid_or_vertex) is Vertex:
+            mid_or_vertex = mid_or_vertex.mid
+        if type(right_or_vertex) is Vertex:
+            right_or_vertex = right_or_vertex.mid
+            assert self.is_right(right_or_vertex) or self.is_mid(right_or_vertex)
+
+        if mid_or_vertex not in self.mid_map:
+            self.mid_map[mid_or_vertex] = dict()
+        if name not in self.mid_map[mid_or_vertex]:
+            self.mid_map[mid_or_vertex][name] = set()
+        self.mid_map[mid_or_vertex][name].add(right_or_vertex)
+
+        if right_or_vertex not in self.right_map:
+            self.right_map[right_or_vertex] = dict()
+        if name not in self.right_map[right_or_vertex]:
+            self.right_map[right_or_vertex][name] = set()
+        self.right_map[right_or_vertex][name].add(mid_or_vertex)
+
+        return Vertex(self, mid_or_vertex)
+
+    def __delete_edge(self, mid: str, name: str, right: str):
+        self.mid_map[mid][name].remove(right)
+        self.right_map[right][name].remove(mid)
+        if len(self.right_map[right][name]) == 0:
+            del self.right_map[right][name]
 
     def delete_edge(self, edge: Edge):
-        del self.mid_map[edge.mid]
-        self.right_map[edge.right][edge.name].remove(edge.mid)
+        self.__delete_edge(edge.mid, edge.name, edge.right)
 
-    def delete_vertex(self, mid: str):
-        for edge in self.mid_map[mid].values():
-            self.delete_edge(edge)
+    def delete_vertex(self, mid: str or Vertex):
+        if type(mid) is Vertex:
+            mid = mid.mid
+        for name in self.mid_map[mid]:
+            for right in self.mid_map[mid][name]:
+                self.__delete_edge(mid, name, right)
 
     def delete(self, mid_or_edge):
         if type(mid_or_edge) is Edge:
@@ -336,14 +273,19 @@ class KnowledgeGraph(object):
         for mid in self.mid_map:
             yield from self.mid_map[mid].values()
 
+    def edge_namespace(self) -> Set[str]:
+        names = set()
+        for name_map in self.mid_map.values():
+            for name in name_map.keys():
+                names.add(name)
+        return names
+
     def as_dict(self) -> dict:
         """Return deep copy dict representation of the graph"""
-        r = dict()
-        for mid in self.mid_map:
-            for edge in self.mid_map[mid].values():
-                if edge.mid not in r:
-                    r[edge.mid] = {}
-                r[edge.mid][edge.name] = edge.right
+        r = deepcopy(self.mid_map)
+        for nd in r.values():
+            for n in nd:
+                nd[n] = list(nd[n])
         return r
 
     def as_json(self, pretty=False) -> str:
@@ -354,11 +296,12 @@ class KnowledgeGraph(object):
             return dumps(self.as_dict())
 
     def from_dict(self, data: dict):
-        self.mid_map = {}
-        self.right_map = {}
+        self.mid_map = dict()
+        self.right_map = dict()
         for mid in data:
-            for name, right in data[mid].items():
-                self.add(mid=mid, name=name, right=right)
+            for name, right_set in data[mid].items():
+                for right in right_set:
+                    self.add(mid_or_vertex=mid, name=name, right_or_vertex=right)
 
     def from_json(self, json_str: str):
         self.from_dict(loads(json_str))
@@ -377,7 +320,7 @@ class KnowledgeGraph(object):
     # def E(self, mid_or_right: str or None = None) -> EdgeQuery:
     #     return EdgeQuery(graph=self, pipe=self.__e_iter(mid_or_right))
 
-    def __v_iter(self, mid_or_right: str or None = None) -> Iterator[str]:
+    def __v_iter(self, mid_or_right: str or List[str] or Vertex or List[Vertex] or None) -> Iterator[str]:
         yielded = set()
         if mid_or_right is None:
             for mid in self.mid_map:
@@ -389,7 +332,7 @@ class KnowledgeGraph(object):
                 if right not in yielded:
                     yielded.add(right)
                     yield right
-        else:
+        elif type(mid_or_right) is str:
             if mid_or_right in self.mid_map:
                 if mid_or_right not in yielded:
                     yielded.add(mid_or_right)
@@ -398,6 +341,25 @@ class KnowledgeGraph(object):
                 if mid_or_right not in yielded:
                     yielded.add(mid_or_right)
                     yield mid_or_right
+        elif type(mid_or_right) is Vertex:
+            yield mid_or_right.mid
+        elif type(mid_or_right) is list:
+            for str_or_vertex in mid_or_right:
+                if type(str_or_vertex) is str:
+                    if str_or_vertex in self.mid_map:
+                        if str_or_vertex not in yielded:
+                            yielded.add(str_or_vertex)
+                            yield str_or_vertex
+                    elif str_or_vertex in self.right_map:
+                        if str_or_vertex not in yielded:
+                            yielded.add(str_or_vertex)
+                            yield str_or_vertex
+                elif type(str_or_vertex) is Vertex:
+                    yield str_or_vertex.mid
+                else:
+                    raise Exception(f"Graph can't iterate unsupported type in list {type(str_or_vertex)}")
+        else:
+            raise Exception(f"Graph can't iterate unsupported type {type(mid_or_right)}")
 
-    def V(self, mid_or_right: str or None = None) -> VertexQuery:
+    def V(self, mid_or_right: str or List[str] or Vertex or List[Vertex] or None = None) -> VertexQuery:
         return VertexQuery(graph=self, pipe=self.__v_iter(mid_or_right))

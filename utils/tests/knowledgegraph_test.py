@@ -12,19 +12,27 @@ logger = getLogger(__name__)
 def test_knowledgegraph():
     g = mk.KnowledgeGraph()
 
-    e_one = g.add("name", "one")
-    g.add("value", "1", mid=e_one.mid)
-    g.add("parity", "odd", mid=e_one.mid)
+    v_one = g.add("name", "one")
+    v_one.add("value", "1")
+    v_one.add("parity", "odd")
 
-    e_two = g.add("name", "two")
-    g.add("value", "2", mid=e_two.mid)
-    g.add("parity", "even", mid=e_two.mid)
+    v_two = g.add("name", "two")
+    g.add("value", "2", mid_or_vertex=v_two.mid)
+    g.add("parity", "even", mid_or_vertex=v_two)
 
-    e_three = g.add("name", "three")
-    g.add("value", "3", mid=e_three.mid)
-    g.add("parity", "odd", mid=e_three.mid)
-    g.add("minusone", e_two.mid, mid=e_three.mid)
+    v_three = g.add("name", "three")
+    v_three.add("value", "3")
+    v_three.add("parity", "odd")
+    v_three.add("minusone", v_two)
 
-    g.add("plusone", e_three.mid, mid=e_two.mid)
+    v_two.add("plusone", v_three)
 
-    assert g.V("odd").In("parity").Out("minusone").Has("plusone", e_three.mid).All() == {e_two.mid}
+    assert set(g.V().Has("parity", "odd").All()) == {v_one.mid, v_three.mid}
+    assert set(g.V().Has("value").All()) == {v_one.mid, v_two.mid, v_three.mid}
+
+    assert g.V("odd").In("parity").Out("minusone").Has("plusone", v_three).All() == [v_two.mid]
+
+    h = mk.KnowledgeGraph()
+    h.from_json(g.as_json())
+
+    assert h.V("odd").In("parity").Out("minusone").Has("plusone", v_three).All() == [v_two.mid]

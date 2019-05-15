@@ -3,13 +3,12 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from logging import getLogger
-from os.path import expanduser
-from pathlib import Path
 import pytest
 from typing import Iterable
 
+from mozdep.main import guess_repo_path
 import mozdep.component as mc
-from mozdep.dependency import DependencyDescriptor
+from mozdep.knowledgegraph import KnowledgeGraph
 
 logger = getLogger(__name__)
 
@@ -31,101 +30,65 @@ def test_chunking():
         next(mc.chunked([], 10))
 
 
-def __guess_repo_path():
-    home_dir = Path(expanduser('~'))
-    guesses = [
-        home_dir / "mozilla-unified",
-        home_dir / "src" / "mozilla-unified",
-        Path("../../mozilla-unified"),
-        home_dir / "mozilla-central",
-        home_dir / "src" / "mozilla-central",
-        Path("../../mozilla-central"),
-    ]
-    for guess in guesses:
-        if (guess / "mach").is_file():
-            return guess.resolve()
-    return None
-
-
 def test_mach():
-    repo_path = __guess_repo_path()
+    repo_path = guess_repo_path()
     assert repo_path is not None, "There's a local Firefox repo"
     test_set = {
-        repo_path / "mach": "Firefox Build System :: Mach Core",
-        repo_path / "layout/base/nsFrameManager.h": "Core :: Layout"
+        "mach": "Firefox Build System :: Mach Core",
+        "layout/base/nsFrameManager.h": "Core :: Layout"
     }
-
-    result = mc.call_mach_and_parse(map(lambda p: Path(p).resolve(), test_set.keys()))
+    result = mc.call_mach_and_parse(repo_path, test_set.keys())
     assert result == test_set
 
 
 @pytest.fixture(name="dummy_deps")
-def dependencies_fixture():
-
-    class DummyDetector(object):
-        @property
-        def name(self):
-            return "dummy_detector"
-
-    repo_path = __guess_repo_path()
-    assert repo_path is not None, "There's a local Firefox repo"
-    d = DummyDetector()
-    deps = [
-        DependencyDescriptor(d, {
-            "dependants": [],
-            "dependencies": [],
-            "name": "TestDependency1",
-            "repo_files": [
-                repo_path / "mach"
-            ],
-            "repo_top_directory": repo_path,
-            "sourcestamp": None,
-            "target_store": None,
-            "upstream_ref": None,
-            "version": None,
-        }),
-        DependencyDescriptor(d, {
-            "dependants": [],
-            "dependencies": [],
-            "name": "TestDependency2",
-            "repo_files": [
-                repo_path / "mach",
-                repo_path / "layout/base/nsFrameManager.h"
-            ],
-            "repo_top_directory": repo_path,
-            "target_store": None,
-            "sourcestamp": None,
-            "upstream_ref": None,
-            "version": None,
-        }),
-    ]
-    return deps
-
-
-def test_with_dependecies(dummy_deps):
-    repo_path = __guess_repo_path()
+def dependencies_fixture() -> KnowledgeGraph:
+    repo_path = guess_repo_path()
     assert repo_path is not None, "There's a local Firefox repo"
 
-    expected = [
-        repo_path / "mach",
-        repo_path / "layout/base/nsFrameManager.h"
-    ]
-    assert set(mc.iter_files_in_deps(dummy_deps)) == set(expected)
+    g = KnowledgeGraph()
 
-    result = list(mc.detect_components(dummy_deps))
-    assert len(result) == 2
-    a, b = result
-    if not a.name == "Core :: Layout":
-        a, b = b, a
+    dep_one = g.add("ns:fx.mc.lib.dep.name", "TestDependency1")
+    dep_two = g.add("ns:fx.mc.lib.dep.name", "TestDependency2")
 
-    assert a.name == "Core :: Layout"
-    assert b.name == "Firefox Build System :: Mach Core"
-    logger.error(a.dependencies)
-    logger.error(dummy_deps)
-    assert a.dependencies == [dummy_deps[1]]
-    assert a.files == set()  # FIXME: this shouldn't
+    mach_file = g.add("ns:fx.mc.file.path", "mach")
+    mach_file.add("ns:fx.mc.file.part_of", dep_one)
+    mach_file.add("ns:fx.mc.file.part_of", dep_two)
 
-    logger.error(b.dependencies)
-    logger.error(dummy_deps)
-    assert b.dependencies == [dummy_deps]
-    assert b.files == set()  # FIXME: this shouldn't
+    layout_file = g.add("ns:fx.mc.file.path", "layout/base/nsFrameManager.h")
+    layout_file.add("ns:fx.mc.file.part_of", dep_two)
+
+    return g
+
+
+def test_with_dependecies(dummy_deps: KnowledgeGraph):
+    repo_path = guess_repo_path()
+    assert repo_path is not None, "There's a local Firefox repo"
+
+    mc.detect_components(repo_path, dummy_deps)
+
+    r = set(
+        dummy_deps.V()
+                  .In("ns:bz.component.name")
+                  .Out("ns:bz.component.name")
+                  .All()
+    )
+    assert r == {"Firefox Build System :: Mach Core", "Core :: Layout"}
+
+    r = set(
+        dummy_deps.V("Core :: Layout")
+                  .In("ns:bz.component.name")
+                  .Out("ns:fx.mc.file.part_of")
+                  .Out("ns:fx.mc.lib.dep.name")
+                  .All()
+    )
+    assert r == {"TestDependency2"}
+
+    r = set(
+        dummy_deps.V("Firefox Build System :: Mach Core")
+                  .In("ns:bz.component.name")
+                  .Out("ns:fx.mc.file.part_of")
+                  .Out("ns:fx.mc.lib.dep.name")
+                  .All()
+    )
+    assert r == {"TestDependency1", "TestDependency2"}

@@ -8,7 +8,7 @@
 import argparse
 import coloredlogs
 import logging
-import os
+from os.path import expanduser, split
 import pkg_resources
 from pathlib import Path
 import sys
@@ -27,6 +27,29 @@ tmp_dir = None
 module_dir = None
 
 
+def guess_repo_path(override: Path or None = None) -> Path or None:
+    home_dir = Path(expanduser('~'))
+    # TODO: Poll for more guesses
+    guesses = [
+        home_dir / "mozilla-unified",
+        home_dir / "dev" / "mozilla-unified",
+        home_dir / "src" / "mozilla-unified",
+        Path("../mozilla-unified"),
+        Path("../../mozilla-unified"),
+        home_dir / "mozilla-central",
+        home_dir / "dev" / "mozilla-central",
+        home_dir / "src" / "mozilla-central",
+        Path("../mozilla-central"),
+        Path("../../mozilla-central"),
+    ]
+    if override is not None:
+        guesses = [override]
+    for guess in guesses:
+        if (guess / "mach").is_file():
+            return guess.resolve()
+    return None
+
+
 def parse_args(argv=None):
     """
     Argument parsing. Parses from sys.argv if argv is None.
@@ -37,7 +60,7 @@ def parse_args(argv=None):
         argv = sys.argv[1:]
 
     pkg_version = pkg_resources.require("mozdep")[0].version
-    home = os.path.expanduser("~")
+    home = expanduser("~")
 
     # Set up the parent parser with shared arguments
     parser = argparse.ArgumentParser(prog="mozdep")
@@ -65,7 +88,7 @@ def parse_args(argv=None):
 def main(argv=None):
     global logger, tmp_dir, module_dir
 
-    module_dir = os.path.split(__file__)[0]
+    module_dir = split(__file__)[0]
 
     args = parse_args(argv)
 
