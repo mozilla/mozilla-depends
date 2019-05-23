@@ -36,13 +36,18 @@ class DetectCommand(BaseCommand):
                             help="path to CSV export file",
                             type=Path,
                             action="store")
+        parser.add_argument("-D", "--detector",
+                            help="run specific detector(s)",
+                            type=str,
+                            default=[],
+                            action="append")
 
     def run(self) -> int:
         repo_dir = self.args.tree.resolve()
 
         g = KnowledgeGraph()
 
-        run_all(repo_dir, g)
+        run_all(repo_dir, g, choice=self.args.detector)
 
         file_count = len(g.V().Has("ns:fx.mc.file.path").All())
         dep_count = len(g.V().Has("ns:fx.mc.lib.dep.name").All())

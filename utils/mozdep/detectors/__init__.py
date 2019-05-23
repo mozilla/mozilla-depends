@@ -6,6 +6,7 @@
 
 from logging import getLogger
 from pathlib import Path
+from typing import List
 
 from . import basedetector
 from . import mozyaml
@@ -57,14 +58,23 @@ def run(detector: str, tree: Path, graph: KnowledgeGraph) -> bool:
     return True
 
 
-def run_all(tree: Path, graph: KnowledgeGraph) -> bool:
+def run_all(tree: Path, graph: KnowledgeGraph, *, choice: List[str] or None = None) -> bool:
+
     sorted_detectors = list(all_detectors.values())
     sorted_detectors.sort(key=lambda x: x.priority(), reverse=True)
+    sorted_detector_names = [d.name() for d in sorted_detectors]
+
+    if choice is None or len(choice) == 0:
+        choice = sorted_detector_names
+    for detector_name in choice:
+        if detector_name not in sorted_detector_names:
+            logger.error(f"Ignoring unknown detector {detector_name}")
 
     ret = True
     for detector in sorted_detectors:
-        # if detector.name() != "python":
-        #     continue
+        if detector.name() not in choice:
+            logger.warning(f"Not running detector {detector.name()}")
+            continue
         ret = run(detector.name(), tree, graph)
         if not ret:
             logger.critical(f"Detector `{detector.name}` failed. Aborting")

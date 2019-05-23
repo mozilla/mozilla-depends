@@ -53,6 +53,17 @@ def test_pip_freeze(venv):
 
 
 @pytest.mark.slow
+def test_pip_show(venv):
+    repo = guess_repo_path()
+    good_pkg = repo / "third_party" / "python" / "slugid"
+    pydet.run_pip(venv, "install", str(good_pkg))
+    show_out = pydet.check_pip_show(venv)
+    assert "slugid" in show_out
+    assert show_out["slugid"]["Author"] == "Pete Moore"
+    assert show_out["slugid"]["License"] == "MPL 2.0"
+
+
+@pytest.mark.slow
 def test_pip_check(venv):
     pydet.run_pip(venv, "install", "pip-check")
     before = set(pydet.pip_check_result(venv))

@@ -189,9 +189,10 @@ class VertexQuery(object):
 
 class KnowledgeGraph(object):
 
-    def __init__(self):
+    def __init__(self, *, verify_namespace=True):
         self.mid_map = dict()  # mapping MIDs to named edges objects
         self.right_map = dict()  # mapping all Edge.right to MIDs
+        self.verify = verify_namespace
 
     def __contains__(self, mid_or_right: str):
         return mid_or_right in self.mid_map or mid_or_right in self.right_map
@@ -220,11 +221,18 @@ class KnowledgeGraph(object):
         else:
             return mid_or_right
 
-    def add(self, name: str, right_or_vertex: str or Vertex, *, mid_or_vertex: str or Vertex or None = None) -> Vertex:
+    def add(self, name: str or "Ns", right_or_vertex: str or Vertex, *,
+            mid_or_vertex: str or Vertex or None = None) -> Vertex:
         # logger.warn(name, mid_or_vertex, right_or_vertex)
         # assert type(name) is str
         # assert type(mid_or_vertex) is str or type(mid_or_vertex) is Vertex or mid_or_vertex is None
         # assert type(right_or_vertex) is str or type(right_or_vertex) is Vertex
+
+        if type(name) is not Ns:
+            name = Ns(name)
+
+        if self.verify and not name.is_known():
+            raise NamespaceError(f"Unknown namespace identifier {name.s}")
 
         mid_or_vertex = mid_or_vertex or self.generate_mid()
         if type(mid_or_vertex) is Vertex:
@@ -363,3 +371,131 @@ class KnowledgeGraph(object):
 
     def V(self, mid_or_right: str or List[str] or Vertex or List[Vertex] or None = None) -> VertexQuery:
         return VertexQuery(graph=self, pipe=self.__v_iter(mid_or_right))
+
+
+class NamespaceError(Exception):
+    pass
+
+
+class Ns(object):
+
+    NS = {
+        "mid": None,
+        "ns": {
+            "bz": {
+                "product": {
+                    "component": {
+                        "name": None,
+                    }
+                },
+            },
+            "fx": {
+                "mc": {
+                    "dir": {
+                        "path": None,
+                    },
+                    "file": {
+                        "path": None,
+                        "part_of": None,
+                        "in_component": None,
+                    },
+                    "lib": {
+                        "name": None,
+                        "dep": {
+                            "": None,
+                            "detected_by": None
+                        },
+                    },
+                    "detector": {
+                        "name": None,
+                    },
+                },
+            },
+            "gh": {
+                "repo": {
+                    "url": None,
+                }
+            },
+            "language": {
+                "Name": None
+            },
+            "version": {
+                "spec": None,
+                "type": None
+            },
+        },
+    }
+
+    def __init__(self, path: str or List[str] or None = None, *, prefix: str = "ns"):
+        self._str = None
+        if type(path) is list:
+            self._path = path
+        elif path is None:
+            self._path = [prefix]
+        elif type(path) is str:
+            self._path = self.parse(path)
+        else:
+            raise NamespaceError(f"Unsupported namespace initializer {type(path)}")
+
+    def is_known(self):
+        ns_pointer = self.NS
+        try:
+            for item in self._path:
+                ns_pointer = ns_pointer[item]
+        except KeyError:
+            return False
+        return True
+
+    # def learn(self):
+    #     # Add to NS dictionary
+    #     raise NotImplemented
+
+    @classmethod
+    def parse(cls, s: str) -> List[str]:
+        prefix, *rest = s.split(":")
+        if len(rest) == 0:
+            return [prefix]
+        if len(rest) > 1:
+            raise NamespaceError(f"Invalid namespace identifier `{s}`")
+        if prefix not in cls.NS:
+            raise NamespaceError(f"Invalid namespace `{prefix}`")
+        return [prefix] + rest[0].split(".")
+
+    def __getattr__(self, item) -> "Ns":
+        return Ns(self._path + [item])
+
+    @property
+    def s(self):
+        if self._str is None:
+            if len(self._path) == 1:
+                self._str = self._path[0]
+            else:
+                self._str = f"{':'.join([self._path[0], '.'.join(self._path[1:])])}"
+        return self._str
+
+    def __str__(self) -> str:
+        return self.s
+
+    def __repr__(self) -> str:
+        return f"Ns('{self.s}')"
+
+    def __hash__(self):
+        return hash(self.s)
+
+    def __eq__(self, other: str or "Ns"):
+        if type(other) is Ns:
+            other = other.s
+        return self.s == other
+
+    def __gt__(self, other: str or "Ns"):
+        if type(other) is Ns:
+            other = other.s
+        return other.startswith(self.s)
+
+    def __lt__(self, other: str or "Ns"):
+        if type(other) is Ns:
+            other = other.s
+        return self.s.startswith(other)
+
+    def __deepcopy__(self, memo):
+        return Ns(self.s)

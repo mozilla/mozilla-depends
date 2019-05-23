@@ -3,6 +3,7 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from logging import getLogger
+import pytest
 
 import mozdep.knowledgegraph as mk
 
@@ -10,7 +11,7 @@ logger = getLogger(__name__)
 
 
 def test_knowledgegraph():
-    g = mk.KnowledgeGraph()
+    g = mk.KnowledgeGraph(verify_namespace=False)
 
     v_one = g.add("name", "one")
     v_one.add("value", "1")
@@ -32,7 +33,17 @@ def test_knowledgegraph():
 
     assert g.V("odd").In("parity").Out("minusone").Has("plusone", v_three).All() == [v_two.mid]
 
-    h = mk.KnowledgeGraph()
+    h = mk.KnowledgeGraph(verify_namespace=False)
     h.from_json(g.as_json())
 
     assert h.V("odd").In("parity").Out("minusone").Has("plusone", v_three).All() == [v_two.mid]
+
+
+def test_knowledgegraph_namespace():
+    g = mk.KnowledgeGraph(verify_namespace=True)
+
+    _ = g.add("ns:fx.mc.file.path", "foo/bar")
+    _ = g.add(mk.Ns().fx.mc.file.path, "foo/baz")
+
+    with pytest.raises(mk.NamespaceError):
+        v = g.add(mk.Ns().fx.mc.file.unknown, "foo/bar")

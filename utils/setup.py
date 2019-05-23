@@ -7,12 +7,14 @@
 from setuptools import setup, find_packages
 
 PACKAGE_NAME = "mozdep"
-PACKAGE_VERSION = "0.0.0a1"
+PACKAGE_VERSION = "0.0.0a2"
 
 INSTALL_REQUIRES = [
     "coloredlogs",
-    # "graph-tool",
+    "networkx",
     "PyYAML",
+    "requests",
+    "semantic_version",
     "toml"
 ]
 

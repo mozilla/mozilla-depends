@@ -5,13 +5,13 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from distutils.spawn import find_executable
+from json import loads
 import logging
-from multiprocessing import Pool
 from pathlib import Path
-from random import randint
+from requests import get
+from semantic_version import Version, Spec, validate
 from tempfile import mkdtemp
-from typing import Iterator, Tuple
-from shutil import copytree, rmtree
+from typing import Iterator, Tuple, Iterable, List
 from subprocess import run, PIPE, DEVNULL, CalledProcessError
 
 from .basedetector import DependencyDetector
@@ -19,6 +19,38 @@ from .basedetector import DependencyDetector
 # tempfile.mkdtemp(suffix=None, prefix=None, dir=None
 
 logger = logging.getLogger(__name__)
+
+
+class SafetyDB(object):
+
+    db_url = """https://raw.githubusercontent.com/pyupio/safety-db/master/data/insecure_full.json"""
+
+    def __init__(self):
+        r = get(self.db_url)
+        assert r.status_code == 200
+        self.db = loads(r.text)
+
+    def match(self, package_name, version):
+        if not validate(version):
+            logger.debug(f"Package {package_name} has partial semver version {version}")
+        try:
+            v = Version(version, partial=True)
+        except ValueError:
+            logger.error(f"Invalid version {version}. Ignoring packet")
+            return
+        if package_name in self.db:
+            for vuln in self.db[package_name]:
+                for semver_spec in vuln["specs"]:
+                    try:
+                        if v in Spec(semver_spec):
+                            yield vuln
+                            break
+                    except ValueError:
+                        # Fallback for broken semver specs in deb: try raw comparison
+                        logger.warning(f"Broken semver spec for {package_name} in SafetyDB: {semver_spec}")
+                        if version == semver_spec:
+                            yield vuln
+                            break
 
 
 def pip_check_result(venv: Path) -> Iterator[Tuple[str, str, str or None, str or None]]:
@@ -85,27 +117,74 @@ def check_package(venv: Path, pkg: Path) -> (Path, str, str or None, str or None
         return name, old, new, repo
 
 
-def parallel_process(args):
-    venv, setup_path = args
-    tempdir = Path(mkdtemp(prefix=f"mozdep_parallel_{randint(0, 1<<64)}_"))
-    venv_copy = tempdir / "venvcopy"
-    copytree(str(venv), str(venv_copy))
-
+def check_pip_show(venv: Path, pkg_list: List[str] or None = None) -> dict:
+    if pkg_list is None:
+        pkg_list = list(check_pip_freeze(venv))
     try:
-        library_name, library_version, upstream_version, repo_url = \
-            check_package(venv_copy, setup_path)
-    except CalledProcessError or TypeError:
-        logger.warning(f"Error extracting information from `{setup_path}`")
-        library_name = setup_path.parent.name
-        library_version = "unknown"
-        upstream_version = "unknown"
-        repo_url = "unknown"
+        pip_out = run_pip(venv, "show", *[p for p, _ in pkg_list])
+    except CalledProcessError as e:
+        raise e
+    result = {}
+    line_dict = {}
+    for pkg_out in pip_out.split("\n---\n"):
+        for line in pkg_out.split("\n"):
+            if len(line) == 0:
+                continue
+            key, *value = line.split(": ")
+            value = ": ".join(value)
+            line_dict[key] = value
+            result[line_dict["Name"]] = line_dict
+    if len(line_dict) > 0:
+        result[line_dict["Name"]] = line_dict
+    return result
 
-    logger.debug(f"Extracted package info: {library_name} {library_version} {upstream_version} {repo_url}")
 
-    rmtree(str(tempdir))
+def bulk_process(venv, all_pkgs: Iterable[Path]) -> dict:
+    safety_db = SafetyDB()
+    base_state = set(check_pip_freeze(venv))
+    current_state = base_state.copy()
+    setup_map = dict()
+    for pkg_path in all_pkgs:
+        logger.info(f"Processing Python package from {pkg_path}")
+        try:
+            # CAVE:
+            # Installing Python packages si essentially arbitrary code execution.
+            # We can only do this as long as we trust those setup.py files.
+            run_pip(venv, "install", "--force-reinstall", "--no-deps", str(pkg_path.parent))
+        except CalledProcessError as e:
+            logger.error(f"Unable to install {pkg_path}. Ignoring packet")
+            continue
+        new_state = set(check_pip_freeze(venv))
+        state_diff = new_state - current_state
+        current_state = new_state
+        for package_name, installed_version in state_diff:
+            logger.debug(f"New package: {package_name} {installed_version}")
+            if package_name in setup_map:
+                logger.warning(f"Ignoring duplicate package at {pkg_path}")
+            else:
+                setup_map[package_name] = pkg_path
 
-    return setup_path, library_name, library_version, upstream_version, repo_url
+    result = dict()
+    installed_state = current_state - base_state
+    for package_name, installed_version, upstream_version, upstream_repo in pip_check_result(venv):
+        if (package_name, installed_version) not in installed_state:
+            continue
+        vulnerabilities = list(safety_db.match(package_name, installed_version))
+        for vuln in vulnerabilities:
+            logger.warning(f"Vulnerability found: {repr(vuln)}")
+
+        setup_path = setup_map[package_name]
+        result[package_name] = {
+            "setup_path": setup_path,
+            "package_name": package_name,
+            "installed_version": installed_version,
+            "upstream_version": upstream_version,
+            "upstream_repo": upstream_repo,
+            "vulnerabilities": vulnerabilities
+        }
+        logger.debug(result[package_name])
+
+    return result
 
 
 class PythonDependencyDetector(DependencyDetector):
@@ -129,41 +208,39 @@ class PythonDependencyDetector(DependencyDetector):
         except CalledProcessError as e:
             logger.error(f"Error while creating virtual environment: {str(e)}")
             return False
-
-        self.state = {
-            "tmpdir": tmpdir,
-            "venv": venv
-        }
-
         logger.debug(f"Created virtual environment in {venv}, installing `pip-check`")
 
         try:
-            run_pip(self.state["venv"], "install", "pip-check")
+            run_pip(venv, "install", "pip-check")
         except CalledProcessError as e:
             logger.error(f"Error while installing `pip-check`: {str(e)}")
             return False
 
+        try:
+            safety_db = SafetyDB()
+        except AssertionError:
+            logger.error(f"Failed to fetch Safety DB from `{SafetyDB.db_url}`")
+            return False
+
+        self.state = {
+            "safety_db": safety_db,
+            "tmpdir": tmpdir,
+            "venv": venv
+        }
+
         return True
 
     def run(self):
+        # setup_files = list(self.hg.path.glob("third_party/python/*/setup.py"))
+        setup_files = list(self.hg.find("setup.py"))
+        results = bulk_process(self.state["venv"], setup_files)
 
-        from pprint import pprint as pp
-
-        setup_files = list(self.hg.path.glob("third_party/python/*/setup.py"))
-        worker_args = list(zip([self.state["venv"]] * len(setup_files), setup_files))
-
-        pp(setup_files)
-        pp(worker_args)
-
-        mp = Pool()
-        results = list(map(parallel_process, worker_args))
-        mp.terminate()
-        mp.close()
-        pp(results)
         for result in results:
             self.process(result)
 
     def process(self, arg):
+        return
+
         setup_path, library_name, library_version, upstream_version, repo_url = arg
         logger.debug(f"Adding package info: {library_name} {library_version} {upstream_version} {repo_url}")
 
@@ -211,26 +288,26 @@ class PythonDependencyDetector(DependencyDetector):
 
         # Get existing library node or create one
         try:
-            lv = self.g.V(library_name).In("ns:fx.mc.lib.name").Has("ns:language.name", "cpp").AllV()[0]
+            lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").AllV()[0]
         except IndexError:
-            lv = self.g.add("ns:fx.mc.lib.name", library_name)
-            lv.add("ns:language.name", "cpp")
+            lv = self.g.add(Ns().fx.mc.lib.name, library_name)
+            lv.add(Ns().language.name, "cpp")
 
-        dv = self.g.add("ns:fx.mc.lib.dep.name", library_name)
-        dv.add("ns:fx.mc.lib", lv)
-        dv.add("ns:language.name", "python")
-        dv.add("ns:fx.mc.detector.name", self.name())
-        dv.add("ns:version.spec", library_version)
-        dv.add("ns:version.type", "generic")
-        dv.add("ns:fx.mc.dir.path", rel_top_path)
+        dv = self.g.add(Ns().fx.mc.lib.dep.name, library_name)
+        dv.add(Ns().fx.mc.lib, lv)
+        dv.add(Ns().language.name, "python")
+        dv.add(Ns().fx.mc.detector.name, self.name())
+        dv.add(Ns().version.spec, library_version)
+        dv.add(Ns().version.type, "generic")
+        dv.add(Ns().fx.mc.dir.path, rel_top_path)
 
         if repo_url is not None:
-            dv.add("ns:gh.repo.url", repo_url)
-            dv.add("ns:gh.repo.version", upstream_version)
+            dv.add(Ns().gh.repo.url, repo_url)
+            dv.add(Ns().gh.repo.version, upstream_version)
 
         # Create file references
         for f in setup_path.parent.rglob("*"):
             logger.debug(f"Processing file {f}")
             rel_path = str(f.relative_to(self.hg.path))
-            fv = self.g.add("ns:fx.mc.file.path", rel_path)
-            fv.add("ns:fx.mc.file.part_of", dv)
+            fv = self.g.add(Ns().fx.mc.file.path, rel_path)
+            fv.add(Ns().fx.mc.file.part_of, dv)
