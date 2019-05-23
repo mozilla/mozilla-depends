@@ -69,15 +69,15 @@ def test_with_dependecies(dummy_deps: KnowledgeGraph):
 
     r = set(
         dummy_deps.V()
-                  .In("ns:bz.component.name")
-                  .Out("ns:bz.component.name")
+                  .In("ns:bz.product.component.name")
+                  .Out("ns:bz.product.component.name")
                   .All()
     )
     assert r == {"Firefox Build System :: Mach Core", "Core :: Layout"}
 
     r = set(
         dummy_deps.V("Core :: Layout")
-                  .In("ns:bz.component.name")
+                  .In("ns:bz.product.component.name")
                   .Out("ns:fx.mc.file.part_of")
                   .Out("ns:fx.mc.lib.dep.name")
                   .All()
@@ -86,7 +86,7 @@ def test_with_dependecies(dummy_deps: KnowledgeGraph):
 
     r = set(
         dummy_deps.V("Firefox Build System :: Mach Core")
-                  .In("ns:bz.component.name")
+                  .In("ns:bz.product.component.name")
                   .Out("ns:fx.mc.file.part_of")
                   .Out("ns:fx.mc.lib.dep.name")
                   .All()

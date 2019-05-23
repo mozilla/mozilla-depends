@@ -85,6 +85,6 @@ def detect_components(repo_path: Path, g: KnowledgeGraph):
 
     for fp, c in files_mapping.items():
         fv = g.V(fp).In("ns:fx.mc.file.path").GetLimitV(1)[0]
-        fv.add("ns:bz.component.name", c)
+        fv.add("ns:bz.product.component.name", c)
 
     return

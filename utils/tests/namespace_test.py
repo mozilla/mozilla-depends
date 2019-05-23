@@ -3,7 +3,6 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from logging import getLogger
-import pytest
 
 from mozdep.knowledgegraph import Ns, NamespaceError
 
@@ -27,12 +26,6 @@ def test_nameapace():
 def test_namespace_parser():
     n = Ns("ns:fx.mc.file.path")
     assert str(n) == "ns:fx.mc.file.path"
-
-    with pytest.raises(NamespaceError):
-        Ns("nn:foo")
-
-    with pytest.raises(NamespaceError):
-        Ns("ns:foo:bar")
 
 
 def test_namespace_relations():
