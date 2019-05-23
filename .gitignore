@@ -3,3 +3,6 @@ Pipfile.lock
 utils/node_modules
 utils/package-lock.json
 *.pyc
+.idea/
+*.egg-info/
+.eggs/
