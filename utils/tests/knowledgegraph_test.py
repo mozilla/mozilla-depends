@@ -11,6 +11,7 @@ logger = getLogger(__name__)
 
 
 def test_knowledgegraph():
+    """Test with string primitives"""
     g = mk.KnowledgeGraph(verify_namespace=False)
 
     v_one = g.add("name", "one")
@@ -40,10 +41,16 @@ def test_knowledgegraph():
 
 
 def test_knowledgegraph_namespace():
+    """Test with Ns primitives"""
     g = mk.KnowledgeGraph(verify_namespace=True)
 
-    _ = g.add("ns:fx.mc.file.path", "foo/bar")
-    _ = g.add(mk.Ns().fx.mc.file.path, "foo/baz")
+    v_bar = g.add("ns:fx.mc.file.path", "foo/bar")
+    v_baz = g.add(mk.Ns().fx.mc.file.path, "foo/baz")
+
+    assert set(g.V("foo/bar").All()) == {"foo/bar"}
+    assert set(g.V("foo/bar").In(mk.Ns().fx.mc.file.path).All()) == {v_bar.mid}
+    assert set(g.V().Out(mk.Ns().fx.mc.file.path).All()) == {"foo/bar", "foo/baz"}
+    assert set(g.V().Has(mk.Ns().fx.mc.file.path, "foo/baz").All()) == {v_baz.mid}
 
     with pytest.raises(mk.NamespaceError):
-        v = g.add(mk.Ns().fx.mc.file.unknown, "foo/bar")
+        _ = g.add(mk.Ns().fx.mc.file.unknown, "foo/bam")

@@ -3,13 +3,14 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from logging import getLogger
+import pytest
 
 from mozdep.knowledgegraph import Ns, NamespaceError
 
 logger = getLogger(__name__)
 
 
-def test_nameapace():
+def test_namespace():
     empty_ns = Ns()
     assert empty_ns.is_known()
 
@@ -18,32 +19,57 @@ def test_nameapace():
     assert str(file_path) == "ns:fx.mc.file.path"
     assert repr(file_path) == "Ns('ns:fx.mc.file.path')"
 
-    unknown = Ns().fx.mc.file.foo
+    unknown = Ns(check=False).fx.mc.file.foo
     assert str(unknown) == "ns:fx.mc.file.foo"
     assert not unknown.is_known()
 
 
 def test_namespace_parser():
     n = Ns("ns:fx.mc.file.path")
+    assert n.p == "ns"
+    assert n.r == ["fx", "mc", "file", "path"]
     assert str(n) == "ns:fx.mc.file.path"
 
 
-def test_namespace_relations():
+def test_namespace_hashing():
+    x = Ns().fx.mc
+    y = Ns().fx.mc
+    assert hash(x) == hash(y)
+    assert hash(x) == hash("ns:fx.mc")
 
-    x = Ns().foo.bar
-    y = Ns().foo.bar
+    d = dict()
+    d[x] = "test"
+    assert "ns:fx.mc"
+    assert d["ns:fx.mc"] == "test"
+
+
+def test_namespace_relations():
+    x = Ns().fx.mc
+    y = Ns().fx.mc
 
     assert id(x) != id(y)
     assert x == y
-    assert hash(x) == hash(y)
-    assert hash(x) == hash("ns:foo.bar")
 
-    assert x == "ns:foo.bar"
-    assert Ns("foo") == "foo"
+    assert x == "ns:fx.mc"
+    assert Ns("ns:fx.mc.file") == "ns:fx.mc.file"
 
-    assert x.baz != x
-    assert x.baz < x
-    assert x > x.baz
+    assert x.lib != x
+    assert x.file < x
+    assert x > x.lib
 
-    assert not Ns().foo < Ns().baz
-    assert not Ns().foo > Ns().baz
+    assert not Ns().fx.mc.lib < Ns().fx.mc.file
+    assert not Ns().fx.mc.lib > Ns().fx.mc.file
+
+
+def test_namespace_errors():
+
+    with pytest.raises(NamespaceError):
+        Ns("foo")
+    with pytest.raises(NamespaceError):
+        Ns("ns:foo")
+    with pytest.raises(NamespaceError):
+        Ns().fx.foo
+
+    # No error
+    _ = Ns(check=False).unknown
+    _ = Ns("foo:bar", check=False).unknown

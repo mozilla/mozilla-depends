@@ -15,6 +15,134 @@ from typing import Iterator, List, Set
 logger = logging.getLogger(__name__)
 
 
+class NamespaceError(Exception):
+    pass
+
+
+class Ns(str):
+
+    NS = {
+        "ns": {
+            "bz": {
+                "product": {
+                    "name": None,
+                    "component": {
+                        "name": None,
+                    }
+                },
+            },
+            "fx": {
+                "mc": {
+                    "dir": {
+                        "path": None,
+                    },
+                    "file": {
+                        "path": None,
+                        "part_of": None,
+                        "in_component": None,
+                    },
+                    "lib": {
+                        "name": None,
+                        "description": None,
+                        "dep": {
+                            "name": None,
+                            "detected_by": None
+                        },
+                    },
+                    "detector": {
+                        "name": None,
+                    },
+                },
+            },
+            "gh": {
+                "repo": {
+                    "url": None,
+                }
+            },
+            "language": {
+                "name": None
+            },
+            "version": {
+                "spec": None,
+                "type": None
+            },
+            "vuln": {
+                "id": None,
+                "version_match": None,
+                "summary": None,
+                "description": None,
+                "class": None,
+                "severity": None,
+                "info_link": None,
+                "affects": None,
+            },
+        },
+    }
+
+    def __new__(cls, content=None, *, check=True):
+        # logger.debug(f"Ns.__new__ content={content} check={check}")
+        if content is None:
+            return super().__new__(cls, "ns")
+        else:
+            return super().__new__(cls, content)
+
+    def __init__(self, content=None, *, check=True):
+        # logger.debug(f"Ns.__init__ content={content} check={check}")
+        super().__init__()
+        self._p = None
+        self._r = None
+        self._s = None
+        self._check = check
+        if check and not self.is_known():
+            raise NamespaceError(f"Invalid namespace identifier `{self}`")
+
+    @property
+    def p(self):
+        if self._p is None:
+            self._p = self.split(":")[0]
+        return self._p
+
+    @property
+    def r(self):
+        if self._r is None:
+            try:
+                self._r = self.split(":")[1].split(".")
+            except IndexError:
+                self._r = []
+        return self._r
+
+    def is_known(self):
+        try:
+            ns_pointer = self.NS[self.p]
+            for item in self.r:
+                ns_pointer = ns_pointer[item]
+        except KeyError:
+            return False
+        return True
+
+    # def learn(self):
+    #     # Add to NS dictionary
+    #     raise NotImplemented
+
+    def __repr__(self) -> str:
+        return f"Ns('{self}')"
+
+    def __getattr__(self, item) -> "Ns":
+        if ":" in self:
+            return Ns(self + "." + item, check=self._check)
+        else:
+            return Ns(self + ":" + item, check=self._check)
+
+    def __gt__(self, other: str or "Ns"):
+        return other.startswith(self)
+
+    def __lt__(self, other: str or "Ns"):
+        return self.startswith(other)
+
+    def __deepcopy__(self, memo):
+        return Ns(self, check=self._check)
+
+
 class Vertex(object):
     """A regular graph vertex associated with one or more edges"""
 
@@ -229,7 +357,7 @@ class KnowledgeGraph(object):
         # assert type(right_or_vertex) is str or type(right_or_vertex) is Vertex
 
         if type(name) is not Ns:
-            name = Ns(name)
+            name = Ns(name, check=self.verify)
 
         if self.verify and not name.is_known():
             raise NamespaceError(f"Unknown namespace identifier {name}")
@@ -371,116 +499,3 @@ class KnowledgeGraph(object):
 
     def V(self, mid_or_right: str or List[str] or Vertex or List[Vertex] or None = None) -> VertexQuery:
         return VertexQuery(graph=self, pipe=self.__v_iter(mid_or_right))
-
-
-class NamespaceError(Exception):
-    pass
-
-
-class Ns(str):
-
-    NS = {
-        "mid": None,
-        "ns": {
-            "bz": {
-                "product": {
-                    "name": None,
-                    "component": {
-                        "name": None,
-                    }
-                },
-            },
-            "fx": {
-                "mc": {
-                    "dir": {
-                        "path": None,
-                    },
-                    "file": {
-                        "path": None,
-                        "part_of": None,
-                        "in_component": None,
-                    },
-                    "lib": {
-                        "name": None,
-                        "dep": {
-                            "name": None,
-                            "detected_by": None
-                        },
-                    },
-                    "detector": {
-                        "name": None,
-                    },
-                },
-            },
-            "gh": {
-                "repo": {
-                    "url": None,
-                }
-            },
-            "language": {
-                "Name": None
-            },
-            "version": {
-                "spec": None,
-                "type": None
-            },
-        },
-    }
-
-    def __new__(cls, content=None):
-        if content is None:
-            return super().__new__(cls, "ns")
-        else:
-            return super().__new__(cls, content)
-
-    def __init__(self, _=None):
-        super().__init__()
-        self._p = None
-        self._r = None
-        self._s = None
-
-    @property
-    def p(self):
-        if self._p is None:
-            self._p = self.split(":")[0]
-        return self._p
-
-    @property
-    def r(self):
-        if self._r is None:
-            try:
-                self._r = self.split(":")[1].split(".")
-            except IndexError:
-                self._r = []
-        return self._r
-
-    def is_known(self):
-        try:
-            ns_pointer = self.NS[self.p]
-            for item in self.r:
-                ns_pointer = ns_pointer[item]
-        except KeyError:
-            return False
-        return True
-
-    # def learn(self):
-    #     # Add to NS dictionary
-    #     raise NotImplemented
-
-    def __repr__(self) -> str:
-        return f"Ns('{self}')"
-
-    def __getattr__(self, item) -> "Ns":
-        if ":" in self:
-            return Ns(self + "." + item)
-        else:
-            return Ns(self + ":" + item)
-
-    def __gt__(self, other: str or "Ns"):
-        return other.startswith(self)
-
-    def __lt__(self, other: str or "Ns"):
-        return self.startswith(other)
-
-    def __deepcopy__(self, memo):
-        return Ns(self)
