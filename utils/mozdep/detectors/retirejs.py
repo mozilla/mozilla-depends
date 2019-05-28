@@ -8,9 +8,11 @@ import logging
 import os
 from json import loads, decoder
 from pathlib import Path
-from subprocess import run, check_output, check_call, DEVNULL, PIPE, CalledProcessError
+from subprocess import run, check_output, check_call, DEVNULL, CalledProcessError
+from tempfile import mktemp
 
 from .basedetector import DependencyDetector
+from ..knowledgegraph import Ns
 
 logger = logging.getLogger(__name__)
 
@@ -55,26 +57,37 @@ class RetireDependencyDetector(DependencyDetector):
         return True
 
     def run(self):
+        tmp_out = mktemp(prefix="mozdep_retire_")
         cmd = [
             self.args["retire_bin"],
             "--outputformat", "json",
-            "--outputpath", "/dev/stdout",
+            "--outputpath", str(tmp_out),
             "--path", str(self.hg.path),
             "--ignore", str(self.hg.path / ".hg"),
             "--verbose"
         ]
         logger.debug("Running shell command `%s`" % " ".join(cmd))
         logger.info("Running retirejs scanner (takes a while)")
-        cmd_output = run(cmd, check=False, stdout=PIPE, stderr=DEVNULL).stdout
+        r = run(cmd, check=False, capture_output=True)
+        if r.returncode not in [0, 13]:
+            logger.error("retirejs call failed, probably due to network failure")
+            logger.error("Failing stderr is `%s`" % r.stderr.decode("utf-8"))
+            raise Exception("Retire.js failed to run")
+        with open(tmp_out, "rb") as f:
+            cmd_output = f.read()
+        os.unlink(tmp_out)
         logger.debug("Shell command output: `%s`" % cmd_output)
         try:
             result = loads(cmd_output.decode("utf-8"))
         except decoder.JSONDecodeError:
-            logger.warning("retirejs call failed, probably due to network failure")
-            logger.warning("Failing output is `%s`" % cmd_output)
+            logger.error("retirejs call failed, probably due to network failure")
+            logger.error("Failing output is `%s`" % cmd_output)
             raise Exception("Retire.js failed to run, likely due to network error")
-        for r in result["data"]:
-            self.process(r)
+
+        for f in result:
+            if len(f["results"]) == 0:
+                continue
+            self.process(f)
 
     def process(self, data: dict):
 
@@ -133,3 +146,27 @@ class RetireDependencyDetector(DependencyDetector):
 #                                              'http://research.insecurelabs.org/jquery/test/'],
 #                                     'severity': 'medium'}]}]},
 # """
+
+            # Add vulnerability info
+            if "vulnerabilities" not in r:
+                continue
+            for vuln in r["vulnerabilities"]:
+                if "CVE" in vuln["identifiers"]:
+                    if len(vuln["identifiers"]["CVE"]) != 1:
+                        logger.warning(f"Unexpected CVE entry: {vuln['identifiers']['CVE']}")
+                    ident = vuln["identifiers"]["CVE"][0]
+                else:
+                    logger.error(f"Unexpected vulnerability identifier in `{repr(vuln['identifiers'])}`")
+                    continue
+                try:
+                    vv = self.g.V(ident).In(Ns().vuln.id).AllV()[0]
+                    logger.debug(f"Updating existing vulnerability node for {ident}")
+                except IndexError:
+                    logger.debug(f"Creating new vulnerability node for {ident}")
+                    vv = self.g.add(Ns().vuln.id, ident)
+                if "summary" in vuln["identifiers"]:
+                    vv.add(Ns().vuln.summary, vuln["identifiers"]["summary"])
+                vv.add(Ns().vuln.severity, vuln["severity"])
+                vv.add(Ns().vuln.info_link, ";".join(vuln["info"]))
+                vv.add(Ns().vuln.affects, dv)
+                # TODO: extract version_match info

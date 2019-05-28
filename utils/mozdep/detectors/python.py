@@ -118,6 +118,16 @@ def check_package(venv: Path, pkg: Path) -> (Path, str, str or None, str or None
 
 
 def check_pip_show(venv: Path, pkg_list: List[str] or None = None) -> dict:
+    # Name: attrs
+    # Version: 18.1.0
+    # Summary: Classes Without Boilerplate
+    # Home-page: http://www.attrs.org/
+    # Author: Hynek Schlawack
+    # Author-email: hs@ox.cx
+    # License: MIT
+    # Location: /private/tmp/foenv/lib/python2.7/site-packages
+    # Requires:
+    # Required-by: pytest, mozilla-version
     if pkg_list is None:
         pkg_list = list(check_pip_freeze(venv))
     try:

@@ -106,4 +106,7 @@ class DetectCommand(BaseCommand):
                     assert set(row.keys()) == set(field_names)
                     c.writerow(row)
 
+            # from IPython import embed
+            # embed()
+
         return 0
