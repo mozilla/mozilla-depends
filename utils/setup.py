@@ -7,10 +7,11 @@
 from setuptools import setup, find_packages
 
 PACKAGE_NAME = "mozdep"
-PACKAGE_VERSION = "0.0.0a2"
+PACKAGE_VERSION = "0.0.0a3"
 
 INSTALL_REQUIRES = [
     "coloredlogs",
+    "ipython",
     "networkx",
     "PyYAML",
     "requests",
@@ -31,7 +32,6 @@ SETUP_REQUIRES = [
 
 DEV_REQUIRES = [
     "coverage",
-    "ipython",
     "pycodestyle",
     "pytest",
     "pytest-bdd",

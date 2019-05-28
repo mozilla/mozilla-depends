@@ -111,13 +111,6 @@ def main(argv=None):
         logger.critical("\nUser interrupt. Quitting...")
         return 10
 
-    # Wait for sub-threads to wind down
-    if len(enumerate()) > 1:
-        logger.info("Waiting for background threads to finish")
-        while len(enumerate()) > 1:
-            logger.debug("Remaining threads: %s" % enumerate())
-            sleep(2)
-
     return result
 
 

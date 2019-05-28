@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from IPython import embed
 import logging
 from csv import DictWriter
 from pathlib import Path
@@ -41,6 +42,9 @@ class DetectCommand(BaseCommand):
                             type=str,
                             default=[],
                             action="append")
+        parser.add_argument("-i", "--ipython",
+                            help="Drop into IPython shell before exiting",
+                            action="store_true")
 
     def run(self) -> int:
         repo_dir = self.args.tree.resolve()
@@ -106,7 +110,7 @@ class DetectCommand(BaseCommand):
                     assert set(row.keys()) == set(field_names)
                     c.writerow(row)
 
-            # from IPython import embed
-            # embed()
+            if self.args.ipython:
+                embed()
 
         return 0
