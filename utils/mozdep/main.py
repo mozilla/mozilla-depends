@@ -12,8 +12,7 @@ from os.path import expanduser, split
 import pkg_resources
 from pathlib import Path
 import sys
-from threading import enumerate
-from time import sleep, gmtime
+from time import gmtime
 
 from . import command
 

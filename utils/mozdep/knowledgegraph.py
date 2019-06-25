@@ -7,6 +7,7 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 import logging
+import networkx as nx
 from random import choices
 from string import ascii_letters, digits
 from json import dumps, loads
@@ -75,6 +76,8 @@ class Ns(str):
                 "severity": None,
                 "info_link": None,
                 "affects": None,
+                "database": None,
+                "detector_name": None,
             },
         },
     }
@@ -499,3 +502,13 @@ class KnowledgeGraph(object):
 
     def V(self, mid_or_right: str or List[str] or Vertex or List[Vertex] or None = None) -> VertexQuery:
         return VertexQuery(graph=self, pipe=self.__v_iter(mid_or_right))
+
+    def to_x(self):
+        g = nx.MultiDiGraph()
+        for mid in self.mid_map:
+            for edge_name in self.mid_map[mid]:
+                for right in self.mid_map[mid][edge_name]:
+                    g.add_edge(mid, right, t=edge_name)
+        return g
+
+# Plotting: https://stackoverflow.com/questions/20381460/networkx-how-to-show-node-and-edge-attributes-in-a-graph-drawing

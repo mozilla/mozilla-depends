@@ -110,7 +110,7 @@ class DetectCommand(BaseCommand):
                     assert set(row.keys()) == set(field_names)
                     c.writerow(row)
 
-            if self.args.ipython:
-                embed()
+        if self.args.ipython:
+            embed()
 
         return 0
