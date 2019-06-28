@@ -64,7 +64,7 @@ def call_mach_and_parse(repo_path: Path, chunk: Iterator[str]) -> dict:
         if not line.startswith("  "):
             component = line
         else:
-            # Any path from mach is relative to the mozilla repo topdir
+w            # Any path from mach is relative to the mozilla repo topdir
             f = line.lstrip(" ")
             assert (repo_path / f).exists()
             component_map[f] = component

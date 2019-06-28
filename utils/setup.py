@@ -13,6 +13,7 @@ INSTALL_REQUIRES = [
     "coloredlogs",
     "ipython",
     "networkx",
+    "pygraphviz",
     "PyYAML",
     "requests",
     "semantic_version",

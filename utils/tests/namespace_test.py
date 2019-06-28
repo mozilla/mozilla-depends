@@ -73,3 +73,15 @@ def test_namespace_errors():
     # No error
     _ = Ns(check=False).unknown
     _ = Ns("foo:bar", check=False).unknown
+
+
+def test_namespace_indexing():
+    assert type(Ns.len()) is int
+    assert Ns.len() > 10
+    complete_namespace = list(Ns.iter())
+    assert len(complete_namespace) == Ns.len()
+    for index in range(Ns.len()):
+        ns = Ns.by_index(index)
+        assert Ns.index_of(ns) == index
+        assert complete_namespace[index] == ns
+        assert type(complete_namespace[index]) is Ns

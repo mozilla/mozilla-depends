@@ -5,13 +5,14 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from abc import ABC, abstractmethod
+from collections import deque
 from copy import deepcopy
 import logging
 import networkx as nx
 from random import choices
 from string import ascii_letters, digits
 from json import dumps, loads
-from typing import Iterator, List, Set
+from typing import Iterator, List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,20 @@ class Ns(str):
                     "url": None,
                 }
             },
+            "id": {
+                "label": None,
+                "name": None,
+            },
             "language": {
                 "name": None
+            },
+            "rel": {
+                "contains": None,
+                "part_of": None,
+                "same_as": None,
+            },
+            "t": {
+                "generic_type": None,
             },
             "version": {
                 "spec": None,
@@ -82,6 +95,8 @@ class Ns(str):
         },
     }
 
+    _index = None
+
     def __new__(cls, content=None, *, check=True):
         # logger.debug(f"Ns.__new__ content={content} check={check}")
         if content is None:
@@ -98,6 +113,42 @@ class Ns(str):
         self._check = check
         if check and not self.is_known():
             raise NamespaceError(f"Invalid namespace identifier `{self}`")
+
+    @classmethod
+    def iter(cls) -> Iterator["Ns"]:
+        """Iterate the entire namespace"""
+        queue = deque([(Ns(), cls.NS["ns"])])
+        while len(queue) > 0:
+            ns, sub_dict = queue.popleft()
+            for key, sub_sub_dict in sub_dict.items():
+                next_ns = getattr(ns, key)
+                yield next_ns
+                if sub_sub_dict is not None:
+                    queue.append((getattr(ns, key), sub_sub_dict))
+
+    @classmethod
+    def len(cls) -> int:
+        """Return length of namespace"""
+        if cls._index is None:
+            cls._index = list(cls.iter())
+        return len(cls._index)
+
+    @classmethod
+    def index_of(cls, ns: "Ns") -> int:
+        """
+        Return the numerical index of a namespace object.
+
+        The index may change between runs and must not be used
+        for identification.
+        """
+        if cls._index is None:
+            cls._index = list(cls.iter())
+        return cls._index.index(ns)
+
+    @classmethod
+    def by_index(cls, n: int) -> "Ns":
+        """Return namespace object associated with an index"""
+        return deepcopy(cls._index[n])
 
     @property
     def p(self):
@@ -504,11 +555,421 @@ class KnowledgeGraph(object):
         return VertexQuery(graph=self, pipe=self.__v_iter(mid_or_right))
 
     def to_x(self):
-        g = nx.MultiDiGraph()
+        g = nx.DiGraph()
         for mid in self.mid_map:
             for edge_name in self.mid_map[mid]:
                 for right in self.mid_map[mid][edge_name]:
                     g.add_edge(mid, right, t=edge_name)
         return g
 
-# Plotting: https://stackoverflow.com/questions/20381460/networkx-how-to-show-node-and-edge-attributes-in-a-graph-drawing
+
+# Plotting:
+# https://stackoverflow.com/questions/20381460/networkx-how-to-show-node-and-edge-attributes-in-a-graph-drawing
+
+class Entity(ABC):
+    """
+    Base clas for KnowledgeGraph entities which can be a subject, or a string literal.
+    Guarantee for Entity objects:
+      - Have a string representation
+      - Are hashable
+      - Contain a reference Entity.g to their base graph
+    """
+
+    def __init__(self, g: "KnowledgeGraphX"):
+        self.g = g
+
+    @abstractmethod
+    def __str__(self) -> str:
+        return ""
+
+    def __hash__(self) -> int:
+        return hash(str(self))
+
+    def __eq__(self, other) -> bool:
+        return str(self) == str(other)
+
+    @abstractmethod
+    def relations_to(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+        del via
+        yield from ()
+
+    @abstractmethod
+    def relations_from(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+        del via
+        yield from ()
+
+
+class Subject(Entity):
+    """
+    Representation of a knowledge graph's subject.
+    It stores a reference to its parent graph as Subject.g.
+    Its string representation is its MID.
+    """
+
+    @staticmethod
+    def __random_mid(length: int = 10) -> str:
+        """Generate random machine ID"""
+        return "mid:" + "".join(choices(ascii_letters + digits, k=length))
+
+    def __init__(self, parent_graph: "KnowledgeGraphX", *, mid: str = None):
+        super().__init__(parent_graph)
+        self.__mid = mid or self.__random_mid()
+
+    def __str__(self) -> str:
+        return self.mid
+
+    @property
+    def mid(self) -> str:
+        return self.__mid
+
+    def add_relation(self, predicate: Ns, entity: "Subject" or "Literal") -> None:
+        self.g.add_relation(self, predicate, entity)
+
+    def relations_to(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+        yield from self.g.relations_to(self, via)
+
+    def relations_from(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+        yield from self.g.relations_from(self, via)
+
+    def __repr__(self) -> str:
+        return f"Subject('{self.mid}')"
+
+
+class Literal(Entity):
+    """
+    Representation of a knowledge graph's subject.
+    It stores a reference to its parent graph as Subject.g.
+    Its string representation is its string value Literal.s.
+    """
+
+    def __init__(self, parent_graph: "KnowledgeGraphX", string_value: str):
+        super().__init__(parent_graph)
+        self.s = string_value
+
+    def __str__(self) -> str:
+        return self.s
+
+    def __repr__(self) -> str:
+        return f"Literal('{self.s}')"
+
+    def relations_to(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+        yield from self.g.relations_to(self, via)
+
+    def relations_from(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+        del via
+        yield from ()
+
+
+class KnowledgeGraphX(object):
+    """
+    Simplified implementation of a knowledge graph-like structure
+
+    Terminology used here is mostly aligned with RDF terminology:
+    - The graph consists of triplets (s, p, o), describing a
+      subject (s) and its relational predicate (p) with an entity.
+    - Subjects are identified by a (random) machine identifier or mid.
+    - An entity can be either another subject, represented by its mid
+      string, prefixed with mid:, or a string literal.
+    - All literals are strings, there are no expressive literal types.
+      A literal's type is inferred from its predicate.
+    - Predicates referring literals other subjects are implemented as
+      graph edges.
+    - Predicates referring to literals are implemented as graph node
+      attributes to keep the graph clean from meaningless associations.
+    - Predicates strictly adhere to the namespace definition.
+
+    Graph traversal language is a simplified Gremlin dialect.
+    """
+
+    def __init__(self, *, namespace=Ns):
+        self.g = nx.MultiDiGraph()
+        self.ns = namespace
+        self.literals_index = {}
+
+    @staticmethod
+    def is_mid(s: str) -> bool:
+        return str(s).startswith("mid:")
+
+    def new_subject(self, relations: dict = None) -> Subject:
+        """Create a new subject with optional relations"""
+        subject = Subject(self)
+        if relations is not None:
+            for relation, entity in relations.items():
+                self.add_relation(subject, relation, entity)
+        return subject
+
+    def literal(self, string_value: str) -> Literal:
+        """Create a new literal"""
+        return Literal(self, string_value)
+
+    def add_relation(self, subject: Subject, predicate: Ns, entity: Subject or Literal or str) -> Subject:
+        """
+        Add a triple for given subject, predicate, and object.
+
+        :param subject: Subject
+        :param predicate: Ns relation predicate
+        :param entity: Subject or Literal
+        :return: Subject
+        """
+        if type(entity) is str:
+            entity = self.literal(entity)
+        if type(entity) is Subject:
+            self.g.add_edge(subject, entity, predicate=predicate)
+        elif type(entity) is Literal:
+            if subject not in self.g:
+                self.g.add_node(subject)
+            if predicate in self.g.node[subject]:
+                self.g.node[subject][predicate].add(entity)
+            else:
+                self.g.node[subject][predicate] = {entity}
+        else:
+            raise ValueError(f"Entity has unsupported type `{type(entity)}`")
+        return subject
+
+    def add(self, subject: Subject, predicate: Ns, entity: Subject or Literal) -> Subject:
+        """Alias for .add_relation()"""
+        return self.add_relation(subject, predicate, entity)
+
+    def remove_relation(self, subject: Subject, predicate: Ns, entity: Subject or Literal):
+        """
+        Forget about the predicate relation between a subject and an entity.
+
+        :param subject:
+        :param predicate:
+        :param entity:
+        :return: None
+        """
+        self.g.remove_edge(subject, entity, predicate=predicate)
+
+    def remove_entity(self, entity: Subject or Literal):
+        """
+        Forget about all relations with an entity.
+
+        :param entity:
+        :return: None
+        """
+        self.g.remove_node(entity)
+
+    def entities(self) -> Iterator[Entity]:
+        """
+        Iterate over all entities, both subjects and literals
+        """
+        yielded = set()
+        for entity, entity_data in self.g.nodes(data=True):
+            if entity not in yielded:
+                yielded.add(entity)
+                yield entity
+            for k, v in entity_data.items():
+                if type(k) is not Ns:
+                    continue
+                for literal in v:
+                    if literal not in yielded:
+                        yielded.add(literal)
+                        yield literal
+
+    def subjects(self) -> Iterator[Entity]:
+        """
+        Iterate over all subjects
+        """
+        for entity in self.entities():
+            if type(entity) is Subject:
+                yield entity
+
+    def relations(self, via: Ns = None) -> Iterator[Tuple[Subject, Ns, Entity]]:
+        """
+        Iterate over all relation triplets
+        """
+
+        # Yield all relations among subjects (as stored in graph's edge data)
+        for subject, entity, data in self.g.edges(data=True):
+            # Only yield a subject's literal relations once even when it appears in multiple edges.
+            if via is not None and data["predicate"] != via:
+                continue
+            yield subject, data["predicate"], entity
+
+        # Yield all relations between subjects and literals (as stored in graph's node data)
+        for subject, data in self.g.nodes(data=True):
+            for predicate, literals in data.items():
+                if type(predicate) is not Ns:
+                    continue
+                if via is not None and predicate != via:
+                    continue
+                for literal in literals:
+                    yield subject, predicate, literal
+
+    def relations_from(self, entity: Entity, via: Ns = None) -> Iterator[Tuple[Subject, Ns, Entity]]:
+        if type(entity) is Subject:
+            for predicate, literals in self.g.node[entity].items():
+                if type(predicate) is not Ns:
+                    continue
+                if via is not None and predicate != via:
+                    continue
+                for literal in literals:
+                    yield entity, predicate, literal
+            for successor in self.g.successors(entity):
+                for edge_data in self.g.get_edge_data(entity, successor).values():
+                    predicate = edge_data["predicate"]
+                    if type(predicate) is not Ns:
+                        continue
+                    if via is not None and predicate != via:
+                        continue
+                    yield entity, predicate, successor
+
+    def relations_to(self, entity: Entity, via: Ns = None) -> Iterator[Tuple[Subject, Ns, Entity]]:
+        if type(entity) is Subject:
+            for predecessor in self.g.predecessors(entity):
+                for edge_data in self.g.get_edge_data(predecessor, entity).values():
+                    predicate = edge_data["predicate"]
+                    if type(predicate) is not Ns:
+                        continue
+                    if via is not None and predicate != via:
+                        continue
+                    yield predecessor, predicate, entity
+        elif type(entity) is Literal:
+            # FIXME: Iterating all relations is a dumb, slow approach. Speed this up by using a literals index.
+            logger.warning("FIXME: the .relations_to() implementation is awfully slow for literals")
+            for subject, predicate, to_entity in self.relations(via):
+                if to_entity == entity:
+                    if via is not None and predicate != via:
+                        continue
+                    yield subject, predicate, entity
+        else:
+            raise ValueError(f"Unsupported entity type `{type(entity)}`")
+
+    def __iter__(self) -> Iterator[Tuple[Subject, Ns, Entity]]:
+        yield from self.relations()
+
+    def to_graphml(self):
+        # Stringify all entities in graph, because GraphML exporter doesn't like non-string objects.
+        g = nx.DiGraph()
+        for s, p, e in self.relations():
+            g.add_edge(str(s), str(p), str(e))
+        return nx.generate_graphml(g)
+
+    def draw(self):
+
+        # Compile list of edge labels
+        edge_labels = {}
+        for s, p, e in self:
+            edge_labels[(s, e)] = str(p)
+
+        # Compile list of node colors and sizes
+        node_colors = []
+        node_sizes = []
+        for n in self.g.nodes():
+            if type(n) is Subject:
+                node_colors.append("blue")
+                node_sizes.append(1200)
+            else:
+                node_colors.append("red")
+                node_sizes.append(300)
+
+        # Draw the graph
+        pos = nx.drawing.nx_agraph.graphviz_layout(self.g, prog="neato", args="-Goverlap=prism")
+        nx.draw_networkx_nodes(self.g, pos=pos,
+                               node_color=node_colors,
+                               node_size=node_sizes,
+                               alpha=0.5)
+        nx.draw_networkx_edges(self.g, pos=pos, alpha=0.7)
+        nx.draw_networkx_edge_labels(self.g, pos=pos,
+                                     edge_labels=edge_labels,
+                                     font_size=6,
+                                     font_weight="bold",
+                                     alpha=0.7)
+        nx.draw_networkx_labels(self.g, pos=pos,
+                                font_size=9,
+                                font_weight="bold")
+
+    def __v_iter(self, start: Entity or List[Entity] or None) -> Iterator[Entity]:
+        if start is None:
+            yield from self.entities()
+        elif type(start) is list:
+            yield from start
+        else:
+            yield start
+
+    def V(self, start: str or Entity or List[Entity or str] or Tuple[Entity or str] = None) -> "Gromlin":
+        """Start a Gromlin query pipe"""
+        if start is None:
+            return Gromlin(graph=self, pipe=self.__v_iter(None))
+        if type(start) is not list and type(start) is not tuple:
+            start = [start]
+        entity_list = []
+        for thing in start:
+            if type(thing) is str:
+                entity_list.append(self.literal(thing))
+            elif type(thing) is Literal or type(thing) is Subject:
+                entity_list.append(thing)
+        return Gromlin(graph=self, pipe=self.__v_iter(entity_list))
+
+
+class Gromlin(object):
+    """Minimalist knowledge graph query language inspired by Apache Gremlin"""
+
+    def __init__(self, graph: KnowledgeGraphX, pipe: Iterator[Entity]):
+        self.g: KnowledgeGraphX = graph
+        self.p: Iterator[Entity] = pipe
+
+    def __iter__(self) -> Iterator[Entity]:
+        yield from self.p
+
+    def __has_yield(self, relation: Ns, entity: Entity or None) -> Iterator[Entity]:
+        yielded = set()
+        for subject in self.p:
+            if type(subject) is not Subject:
+                continue
+            for _, to_relation, to_entity in subject.relations_from(via=relation):
+                if entity in yielded:
+                    continue
+                if to_relation != relation:
+                    continue
+                if entity is not None and to_entity != entity:
+                    continue
+                yielded.add(subject)
+                yield subject
+
+    def Has(self, relation: Ns, entity: Entity or str = None) -> "Gromlin":
+        """Only select entities that have given relation with an entity."""
+        if type(entity) is str:
+            entity = self.g.literal(entity)
+        return Gromlin(self.g, pipe=self.__has_yield(relation, entity))
+
+    def __out_yield(self, via: Ns or None) -> Iterator[Entity]:
+        yielded = set()
+        for subject in self.p:
+            if type(subject) is not Subject:
+                continue
+            for _, to_relation, to_entity in subject.relations_from(via):
+                if to_entity in yielded:
+                    continue
+                yielded.add(to_entity)
+                yield to_entity
+
+    def Out(self, via: Ns = None) -> "Gromlin":
+        """Move to all entities that this one points to, via edges named `via`"""
+        return Gromlin(self.g, pipe=self.__out_yield(via))
+
+    def __in_yield(self, via: Ns or None) -> Iterator[Subject]:
+        yielded = set()
+        for entity in self.p:
+            for from_subject, to_relation, _ in entity.relations_to(via):
+                if from_subject in yielded:
+                    continue
+                yielded.add(from_subject)
+                yield from_subject
+
+    def In(self, via: Ns = None) -> "Gromlin":
+        """Move to all entities that point to this one, via edges named `via`"""
+        return Gromlin(self.g, pipe=self.__in_yield(via))
+
+    def All(self) -> List[Entity]:
+        return list(self)
+
+    def GetLimit(self, n: int) -> List[Entity]:
+        result = []
+        count = 0
+        for entity in self.p:
+            result.append(entity)
+            if count >= n:
+                break
+        return result

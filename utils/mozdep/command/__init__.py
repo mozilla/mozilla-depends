@@ -9,9 +9,10 @@ import sys
 
 from . import basecommand
 from . import detect
+from . import ipython
 from . import rustlist
 
-__all__ = ["detect", "rustlist"]
+__all__ = ["detect", "rustlist", "ipython"]
 logger = logging.getLogger(__name__)
 
 
