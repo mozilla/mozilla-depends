@@ -8,7 +8,7 @@ from typing import Iterable
 
 from mozdep.main import guess_repo_path
 import mozdep.component as mc
-from mozdep.knowledgegraph import KnowledgeGraph
+from mozdep.knowledgegraph import KnowledgeGraph, Ns
 
 logger = getLogger(__name__)
 
@@ -48,15 +48,15 @@ def dependencies_fixture() -> KnowledgeGraph:
 
     g = KnowledgeGraph()
 
-    dep_one = g.add("ns:fx.mc.lib.dep.name", "TestDependency1")
-    dep_two = g.add("ns:fx.mc.lib.dep.name", "TestDependency2")
+    dep_one = g.add(g.new_subject(), Ns().fx.mc.lib.dep.name, "TestDependency1")
+    dep_two = g.add(g.new_subject(), Ns().fx.mc.lib.dep.name, "TestDependency2")
 
-    mach_file = g.add("ns:fx.mc.file.path", "mach")
-    mach_file.add("ns:fx.mc.file.part_of", dep_one)
-    mach_file.add("ns:fx.mc.file.part_of", dep_two)
+    mach_file = g.add(g.new_subject(), Ns().fx.mc.file.path, "mach")
+    mach_file.add_relation(Ns().fx.mc.file.part_of, dep_one)
+    mach_file.add_relation(Ns().fx.mc.file.part_of, dep_two)
 
-    layout_file = g.add("ns:fx.mc.file.path", "layout/base/nsFrameManager.h")
-    layout_file.add("ns:fx.mc.file.part_of", dep_two)
+    layout_file = g.add(g.new_subject(), Ns().fx.mc.file.path, "layout/base/nsFrameManager.h")
+    layout_file.add_relation(Ns().fx.mc.file.part_of, dep_two)
 
     return g
 
@@ -69,26 +69,26 @@ def test_with_dependecies(dummy_deps: KnowledgeGraph):
 
     r = set(
         dummy_deps.V()
-                  .In("ns:bz.product.component.name")
-                  .Out("ns:bz.product.component.name")
+                  .In(Ns().bz.product.component.name)
+                  .Out(Ns().bz.product.component.name)
                   .All()
     )
     assert r == {"Firefox Build System :: Mach Core", "Core :: Layout"}
 
     r = set(
         dummy_deps.V("Core :: Layout")
-                  .In("ns:bz.product.component.name")
-                  .Out("ns:fx.mc.file.part_of")
-                  .Out("ns:fx.mc.lib.dep.name")
+                  .In(Ns().bz.product.component.name)
+                  .Out(Ns().fx.mc.file.part_of)
+                  .Out(Ns().fx.mc.lib.dep.name)
                   .All()
     )
     assert r == {"TestDependency2"}
 
     r = set(
         dummy_deps.V("Firefox Build System :: Mach Core")
-                  .In("ns:bz.product.component.name")
-                  .Out("ns:fx.mc.file.part_of")
-                  .Out("ns:fx.mc.lib.dep.name")
+                  .In(Ns().bz.product.component.name)
+                  .Out(Ns().fx.mc.file.part_of)
+                  .Out(Ns().fx.mc.lib.dep.name)
                   .All()
     )
     assert r == {"TestDependency1", "TestDependency2"}

@@ -10,6 +10,7 @@ from pathlib import Path
 import toml
 
 from .basedetector import DependencyDetector
+from ..knowledgegraph import Ns
 
 logger = logging.getLogger(__name__)
 
@@ -124,30 +125,33 @@ class CargoTomlDependencyDetector(DependencyDetector):
 
         # Get existing library node or create one
         try:
-            lv = self.g.V(rp.name).In("ns:fx.mc.lib.name").Has("ns:language.name", "rust").AllV()[0]
+            lv = self.g.V(rp.name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "rust").All()[0]
         except IndexError:
-            lv = self.g.add("ns:fx.mc.lib.name", rp.name)
-            lv.add("ns:language.name", "rust")
+            lv = self.g.new_subject()
+            lv.add(Ns().fx.mc.lib.name, rp.name)
+            lv.add(Ns().language.name, "rust")
 
-        dv = self.g.add("ns:fx.mc.lib.dep.name", rp.name)
-        dv.add("ns:fx.mc.lib", lv)
-        dv.add("ns:language.name", "rust")
-        dv.add("ns:fx.mc.detector.name", self.name())
-        dv.add("ns:version.spec", str(rp.version))
-        dv.add("ns:version.type", "generic")
-        dv.add("ns:fx.mc.dir.path", rel_top_path)
+        dv = self.g.new_subject()
+        dv.add(Ns().fx.mc.lib.dep.name, rp.name)
+        dv.add(Ns().fx.mc.lib, lv)
+        dv.add(Ns().language.name, "rust")
+        dv.add(Ns().fx.mc.detector.name, self.name())
+        dv.add(Ns().version.spec, str(rp.version))
+        dv.add(Ns().version.type, "generic")
+        dv.add(Ns().fx.mc.dir.path, rel_top_path)
 
         repo = rp.repository
         if repo is not None:
             if not repo.startswith("http"):
                 repo = "https://github.com/" + repo.lstrip("/")
-            dv.add("ns:gh.repo.url", repo)
+            dv.add(Ns().gh.repo.url, repo)
 
         # Create file references
         for f in self.hg.find(start=rp.path):
             rel_path = str(f.relative_to(self.hg.path))
-            fv = self.g.add("ns:fx.mc.file.path", rel_path)
-            fv.add("ns:fx.mc.file.part_of", dv)
+            fv = self.g.new_subject()
+            fv.add(Ns().fx.mc.file.path, rel_path)
+            fv.add(Ns().fx.mc.file.part_of, dv)
 
         # TODO: extract dependencies from global Cargo.lock
         # key = rp.name + "-" + rp.version

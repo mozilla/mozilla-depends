@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 
 from .basedetector import DependencyDetector
+from ..knowledgegraph import Ns
 
 logger = logging.getLogger(__name__)
 
