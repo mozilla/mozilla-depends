@@ -12,7 +12,7 @@ from pathlib import Path
 from .basecommand import BaseCommand
 from ..component import detect_components
 from ..detectors import run_all
-from ..knowledgegraph import KnowledgeGraph
+from ..knowledgegraph import KnowledgeGraph, Ns
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,8 @@ class DetectCommand(BaseCommand):
 
         run_all(repo_dir, g, choice=self.args.detector)
 
-        file_count = len(g.V().Has("ns:fx.mc.file.path").All())
-        dep_count = len(g.V().Has("ns:fx.mc.lib.dep.name").All())
+        file_count = len(g.V().Has(Ns().fx.mc.file.path).All())
+        dep_count = len(g.V().Has(Ns().fx.mc.lib.dep.name).All())
         logger.info(f"Detectors found {file_count} files in {dep_count} dependencies (including duplicates)")
 
         detect_components(repo_dir, g)
@@ -73,38 +73,38 @@ class DetectCommand(BaseCommand):
             with open(self.args.csv, "w", newline="") as f:
                 c = DictWriter(f, field_names)
                 c.writeheader()
-                for dep_v in g.V().In("ns:fx.mc.lib.dep.name").AllV():
+                for dep_v in g.V().In(Ns().fx.mc.lib.dep.name).All():
                     row = dict(zip(field_names, ["unknown"] * len(field_names)))
                     try:
-                        row["Name"] = g.V(dep_v).Out("ns:fx.mc.lib.dep.name").All()[0]
+                        row["Name"] = g.V(dep_v).Out(Ns().fx.mc.lib.dep.name).All()[0]
                     except IndexError:
                         pass
                     try:
-                        row["Version"] = g.V(dep_v).Out("ns:version.spec").All()[0]
+                        row["Version"] = g.V(dep_v).Out(Ns().version.spec).All()[0]
                     except IndexError:
                         pass
                     try:
-                        row["Language"] = g.V(dep_v).Out("ns:language.name").All()[0]
+                        row["Language"] = g.V(dep_v).Out(Ns().language.name).All()[0]
                     except IndexError:
                         pass
                     try:
-                        row["Upstream Repo"] = g.V(dep_v).Out("ns:gh.repo.url").All()[0]
+                        row["Upstream Repo"] = g.V(dep_v).Out(Ns().gh.repo.url).All()[0]
                     except IndexError:
                         pass
                     try:
-                        row["Upstream Version"] = g.V(dep_v).Out("ns:gh.repo.version").All()[0]
+                        row["Upstream Version"] = g.V(dep_v).Out(Ns().gh.repo.version).All()[0]
                     except IndexError:
                         pass
                     try:
-                        row["Detector"] = g.V(dep_v).Out("ns:fx.mc.detector.name").All()[0]
+                        row["Detector"] = g.V(dep_v).Out(Ns().fx.mc.detector.name).All()[0]
                     except IndexError:
                         pass
 
-                    file_vs = g.V(dep_v).In("ns:fx.mc.file.part_of").AllV()
-                    file_names = g.V(file_vs).Out("ns:fx.mc.file.path").All()
+                    file_vs = g.V(dep_v).In(Ns().fx.mc.file.part_of).All()
+                    file_names = map(str, g.V(file_vs).Out(Ns().fx.mc.file.path).All())
                     row["Files"] = "\n".join(file_names)
 
-                    component_names = g.V(file_vs).Out("ns:bz.component.name").All()
+                    component_names = map(str, g.V(file_vs).Out(Ns().bz.product.component.name).All())
                     row["Component"] = ";".join(component_names)
 
                     assert set(row.keys()) == set(field_names)

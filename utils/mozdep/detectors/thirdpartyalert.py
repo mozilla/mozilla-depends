@@ -9,6 +9,7 @@ import urllib.request
 from json import loads, decoder
 
 from .basedetector import DependencyDetector
+from ..knowledgegraph import Ns
 
 logger = logging.getLogger(__name__)
 
@@ -55,23 +56,25 @@ class ThirdPartyAlertDetector(DependencyDetector):
 
         # Get existing library node or create one
         try:
-            lv = self.g.V(library_name).In("ns:fx.mc.lib.name").Has("ns:language.name", "cpp").AllV()[0]
+            lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
         except IndexError:
-            lv = self.g.add("ns:fx.mc.lib.name", library_name)
-            lv.add("ns:language.name", "cpp")
+            lv = self.g.new_subject()
+            lv.add(Ns().fx.mc.lib.name, library_name)
+            lv.add(Ns().language.name, "cpp")
 
         if loc.is_file():
             rel_top_path = str(loc.relative_to(self.hg.path))
         else:
             rel_top_path = str(loc.parent.relative_to(self.hg.path))
 
-        dv = self.g.add("ns:fx.mc.lib.dep.name", library_name)
-        dv.add("ns:fx.mc.lib", lv)
-        dv.add("ns:language.name", "cpp")
-        dv.add("ns:fx.mc.detector.name", self.name())
-        dv.add("ns:version.spec", library_version)
-        dv.add("ns:version.type", "unknown")
-        dv.add("ns:fx.mc.dir.path", rel_top_path)
+        dv = self.g.new_subject()
+        dv.add(Ns().fx.mc.lib.dep.name, library_name)
+        dv.add(Ns().fx.mc.lib, lv)
+        dv.add(Ns().language.name, "cpp")
+        dv.add(Ns().fx.mc.detector.name, self.name())
+        dv.add(Ns().version.spec, library_version)
+        dv.add(Ns().version.type, "unknown")
+        dv.add(Ns().fx.mc.dir.path, rel_top_path)
 
         # TODO: extract version info
         # TODO: extract upstream repo info
@@ -80,14 +83,16 @@ class ThirdPartyAlertDetector(DependencyDetector):
             for f in self.hg.find(start=loc):
                 logger.debug(f"Processing directory {f}")
                 rel_path = str(f.relative_to(self.hg.path))
-                fv = self.g.add("ns:fx.mc.file.path", rel_path)
-                fv.add("ns:fx.mc.file.part_of", dv)
+                fv = self.g.new_subject()
+                fv.add(Ns().fx.mc.file.path, rel_path)
+                fv.add(Ns().fx.mc.file.part_of, dv)
 
         elif loc.is_file():
             logger.debug(f"Processing directory {loc}")
             rel_path = str(loc.relative_to(self.hg.path))
-            fv = self.g.add("ns:fx.mc.file.path", rel_path)
-            fv.add("ns:fx.mc.file.part_of", dv)
+            fv = self.g.new_subject()
+            fv.add(Ns().fx.mc.file.path, rel_path)
+            fv.add(Ns().fx.mc.file.part_of, dv)
 
         else:
             # Does it glob?
@@ -99,8 +104,9 @@ class ThirdPartyAlertDetector(DependencyDetector):
                 for f in matches:
                     logger.debug(f"Processing file {f}")
                     rel_path = str(f.relative_to(self.hg.path))
-                    fv = self.g.add("ns:fx.mc.file.path", rel_path)
-                    fv.add("ns:fx.mc.file.part_of", dv)
+                    fv = self.g.new_subject()
+                    fv.add(Ns().fx.mc.file.path, rel_path)
+                    fv.add(Ns().fx.mc.file.part_of, dv)
 
 
 # {

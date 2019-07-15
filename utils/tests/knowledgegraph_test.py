@@ -4,7 +4,7 @@
 
 from logging import getLogger
 import pytest
-from random import random, choices, sample
+from random import seed, random, choices, sample
 from string import ascii_letters
 from time import time as now
 
@@ -15,10 +15,10 @@ logger = getLogger(__name__)
 
 def test_knowledgegraph_namespace():
     """Test with Ns primitives"""
-    g = mk.KnowledgeGraph(verify_namespace=True)
+    g = mk.KnowledgeGraph()
 
-    v_bar = g.add("ns:fx.mc.file.path", "foo/bar")
-    v_baz = g.add(mk.Ns().fx.mc.file.path, "foo/baz")
+    v_bar = g.add(g.new_subject(), mk.Ns().fx.mc.file.path, "foo/bar")
+    v_baz = g.add(g.new_subject(), mk.Ns().fx.mc.file.path, "foo/baz")
 
     assert set(g.V("foo/bar").All()) == {"foo/bar"}
     assert set(g.V("foo/bar").In(mk.Ns().fx.mc.file.path).All()) == {v_bar.mid}
@@ -29,8 +29,38 @@ def test_knowledgegraph_namespace():
         _ = g.add(mk.Ns().fx.mc.file.unknown, "foo/bam")
 
 
+def test_knowledgegraph_objects():
+    g = mk.KnowledgeGraph()
+    assert type(g.literal("foo")) is mk.Literal
+    assert type(g.new_subject()) is mk.Subject
+    assert type(g.add_relation(g.new_subject(), mk.Ns().rel.same_as, "something")) is mk.Subject
+
+    some_dict = {}
+    some_set = set()
+    some_subject = g.new_subject()
+    some_literal = g.literal("foo label")
+    some_dict[some_subject] = "foo"
+    some_dict[some_literal] = "foo"
+    some_set.add(some_subject)
+    some_set.add(some_literal)
+
+    assert some_subject in some_dict
+    assert some_subject.mid in some_dict
+    assert g.new_subject() not in some_dict
+    assert some_subject in some_set
+    assert some_subject.mid in some_set
+    assert g.new_subject() not in some_set
+
+    assert some_literal in some_dict
+    assert g.literal("foo label") in some_dict
+    assert "foo label" in some_dict
+    assert some_literal in some_set
+    assert g.literal("foo label") in some_set
+    assert "foo label" in some_set
+
+
 def test_knowledgegraph_subjects():
-    g = mk.KnowledgeGraphX()
+    g = mk.KnowledgeGraph()
 
     subject_a = mk.Subject(g)
     subject_b = mk.Subject(g)
@@ -57,7 +87,7 @@ def test_knowledgegraph_subjects():
 
 
 def test_knowledgegraph_literals():
-    g = mk.KnowledgeGraphX()
+    g = mk.KnowledgeGraph()
 
     literal_a = mk.Literal(g, "literal a")
     literal_a_again = mk.Literal(g, "literal a")
@@ -86,7 +116,7 @@ def test_knowledgegraph_literals():
 
 
 def test_knowledgegraph():
-    g = mk.KnowledgeGraphX()
+    g = mk.KnowledgeGraph()
 
     name_one = g.literal("subject one")
     name_two = g.literal("subject two")
@@ -190,17 +220,24 @@ def test_knowledgegraph():
     assert len(list(label_a.relations_to())) == len(expected_relations_to_label_a), "No duplicates to label a"
 
 
+@pytest.mark.slow
 def test_knowledgegraph_random():
+
+    # Need reproducibility
+    # (Doesn't really work though.)
+    seed("gimme reproducible randomness")
+
     ns = list(mk.Ns.iter())
-    g = mk.KnowledgeGraphX()
+    g = mk.KnowledgeGraph()
 
     # Keep track of what we know
     subjects = set()
     literals = set()
     relations = set()
 
-    timeout_time = now() + 500  # Fuzz for at most 5 seconds
-    while len(relations) < 1500 and now() < timeout_time:
+    iterations = 0
+    timeout_time = now() + 10  # Fuzz for at most 10 seconds
+    while iterations < 1000 and now() < timeout_time:
 
         # With 25% chance, pick a known subject
         if random() > 0.25 and len(subjects) > 0:
@@ -233,6 +270,35 @@ def test_knowledgegraph_random():
 
         relations.add((s, r, e))
         g.add_relation(s, r, e)
+
+        # With a 5% chance, randomly delete some subject
+        if random() < 0.05 and len(subjects) > 5:
+            subject = sample(subjects, 1)[0]
+            assert subject in g
+            g.remove_entity(subject)
+            assert subject not in g
+            subjects.remove(subject)
+            related_literals = set()
+            for s, p, e in list(relations):
+                if s == subject or e == subject:
+                    relations.remove((s, p, e))
+                    continue
+                # Keep track of literals that are still in relations
+                if type(e) is mk.Literal:
+                    related_literals.add(e)
+            # Purge all literals that have lost all relations
+            literals = related_literals
+
+        # With a 5% chance, randomly delete some literal
+        if random() < 0.05 and len(literals) > 5:
+            literal = sample(literals, 1)[0]
+            assert literal in g
+            g.remove_entity(literal)
+            assert literal not in g
+            literals.remove(literal)
+            for s, p, e in list(relations):
+                if e == literal:
+                    relations.remove((s, p, e))
 
         # msg = []
         # msg.append("*** expected subjects")
@@ -269,11 +335,33 @@ def test_knowledgegraph_random():
         assert set(g.entities()) == subjects.union(literals)
         assert set(g.relations()) == relations
 
-    assert len(relations) >= 500, "Fuzzing performed at least 500 iterations"
+        # randomly check relations of 20 subjects and literals
+        if len(subjects) >= 10 and len(literals) >= 10:
+            check_entities = sample(subjects, 10) + sample(literals, 10)
+            expected_from = {}
+            expected_to = {}
+            for entity in check_entities:
+                assert entity in g
+                if entity not in expected_from:
+                    expected_from[entity] = set()
+                if entity not in expected_to:
+                    expected_to[entity] = set()
+                for s, p, e in relations:
+                    if s == entity:
+                        expected_from[entity].add((s, p, e))
+                    if e == entity:
+                        expected_to[entity].add((s, p, e))
+            for entity in check_entities:
+                assert set(entity.relations_from()) == expected_from[entity]
+                assert set(entity.relations_to()) == expected_to[entity]
+
+        iterations += 1
+
+    assert iterations >= 500, "Fuzzing performed at least 500 iterations"
 
 
 def test_gromlin():
-    g = mk.KnowledgeGraphX()
+    g = mk.KnowledgeGraph()
 
     # If you pass strings instead of Literal objects, they'll be wrapped for you.
 
@@ -316,3 +404,12 @@ def test_gromlin():
         == {"One", "Two", "Three"}
     assert set(g.V("Five").In(mk.Ns().id.name).Out(mk.Ns().rel.contains).Out(mk.Ns().id.name)) \
         == {"One", "Two", "Three", "Four"}
+
+    # Handling of unknown entities
+    unknown_subject = mk.Subject(g)
+    unknown_literal = mk.Literal(g, "Fourtytwo")
+    assert set(g.V(unknown_subject)) == set()
+    assert set(g.V(unknown_subject).In()) == set()
+    assert set(g.V(unknown_literal)) == set()
+    assert set(g.V(unknown_literal).In()) == set()
+    assert set(g.V([unknown_subject, unknown_literal, "Five", "Six"]).In().Out(mk.Ns().id.name)) == {"Five"}

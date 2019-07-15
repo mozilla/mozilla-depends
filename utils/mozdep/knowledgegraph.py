@@ -11,8 +11,7 @@ import logging
 import networkx as nx
 from random import choices
 from string import ascii_letters, digits
-from json import dumps, loads
-from typing import Iterator, List, Set, Tuple
+from typing import Iterator, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +58,7 @@ class Ns(str):
             "gh": {
                 "repo": {
                     "url": None,
+                    "version": None,
                 }
             },
             "id": {
@@ -197,375 +197,6 @@ class Ns(str):
         return Ns(self, check=self._check)
 
 
-class Vertex(object):
-    """A regular graph vertex associated with one or more edges"""
-
-    def __init__(self, graph, mid_or_edge):
-        self.g = graph
-        if type(mid_or_edge) is str:
-            self.mid = mid_or_edge
-        else:
-            self.mid = mid_or_edge.mid
-
-    def __iter__(self) -> Iterator["Edge"]:
-        for name, right_set in self.g.mid_map[self.mid].items():
-            for right in right_set:
-                yield Edge(self.g, mid=self.mid, name=name, right=right)
-
-    def __getitem__(self, item):
-        return self.g.mid_map[self.mid][item]
-
-    def add(self, name: str, right: "Vertex" or "Sink" or str) -> "Vertex":
-        self.g.add(name, right, mid_or_vertex=self.mid)
-        return self
-
-
-class Sink(object):
-    """A regular graph vertex associated with one or more edges"""
-
-    def __init__(self, graph, right_or_edge):
-        self.g = graph
-        if type(right_or_edge) is str:
-            self.mid = right_or_edge
-        else:
-            self.mid = right_or_edge.mid
-
-    def __iter__(self) -> Iterator["Edge"]:
-        yield from ()
-
-    def add(self, name: str, right: "Vertex" or "Sink" or str) -> "Vertex":
-        raise NotImplemented
-
-
-class Edge(object):
-
-    def __init__(self, graph, *, name: str, mid: str, right: str):
-        self.g = graph
-        self.name = name
-        self.mid = mid
-        self.right = right
-
-    def __str__(self) -> str:
-        return f"<Edge(graph=0x{hex(id(self.g))} mid={self.mid} name={self.name} right={self.right})>"
-
-    def left(self) -> "Vertex":
-        return Vertex(self.g, self.mid)
-
-    def r(self) -> "Vertex" or "Sink":
-        if self.g.is_mid(self.right):
-            return Vertex(self.g, self.right)
-        else:
-            return Sink(self.g, self.right)
-
-
-class EdgeQuery(object):
-    def __init__(self, graph, pipe: Iterator[Edge]):
-        self.g = graph
-        self.p = pipe
-
-    def __iter__(self) -> Iterator[Edge]:
-        yield from self.p
-
-    def All(self) -> List[Edge]:
-        return list(self)
-
-
-class VertexQuery(object):
-    def __init__(self, graph, pipe: Iterator[str]):
-        self.g = graph
-        self.p = pipe
-
-    def __iter__(self) -> Iterator[str]:
-        yield from self.p
-
-    def __has_yield(self, name: str, right_or_vertex: str or Vertex or None) -> Iterator[str]:
-        if right_or_vertex is None:
-            right = None
-        elif type(right_or_vertex) is Vertex:
-            right = right_or_vertex.mid
-        else:
-            right = right_or_vertex
-        for mid_or_right in self:
-            if self.g.is_mid(mid_or_right):
-                # We have vertice's mid, so iterate edges
-                for edge_name, right_set in self.g.mid_map[mid_or_right].items():
-                    if edge_name == name:
-                        if right is None or right in right_set:
-                            yield mid_or_right
-            elif self.g.is_right(mid_or_right):
-                # Nothing to do if it's a pure right value
-                continue
-            else:
-                raise Exception("まさか！")
-
-    def Has(self, name: str, value_or_vertex: str or Vertex or None = None) -> "VertexQuery":
-        """Only select vertices that have an edge with `name` pointing to `value_or_vertex`"""
-        return VertexQuery(self.g, pipe=self.__has_yield(name, value_or_vertex))
-
-    def __out_yield(self, via: str) -> Iterator[str]:
-        yielded = set()
-        for mid_or_right in self:
-            if self.g.is_mid(mid_or_right):
-                for name, right_set in self.g.mid_map[mid_or_right].items():
-                    if via is None or name == via:
-                        for right in right_set:
-                            if right not in yielded:
-                                yielded.add(right)
-                                yield right
-            elif self.g.is_right(mid_or_right):
-                # Nothing to do if it's a pure right value
-                continue
-            else:
-                raise Exception("まさか！")
-
-    def Out(self, via: str or None = None) -> "VertexQuery":
-        """Follow all vertices that this one points to, via edges named `via`"""
-        return VertexQuery(self.g, pipe=self.__out_yield(via))
-
-    def __in_yield(self, via: str) -> Iterator[str]:
-        yielded = set()
-        for mid_or_right in self:
-            if mid_or_right in self.g.right_map:
-                # We only care about those which occur as right values (ie. are being pointed to)
-                for name, mid_set in self.g.right_map[mid_or_right].items():
-                    if via is None or name == via:
-                        for mid in mid_set:
-                            if mid not in yielded:
-                                yielded.add(mid)
-                                yield mid
-
-    def In(self, via: str or None = None) -> "VertexQuery":
-        """Follow all vertices that point to this one, via edges named `via`"""
-        return VertexQuery(self.g, pipe=self.__in_yield(via))
-
-    def All(self) -> List[str]:
-        return list(self)
-
-    def AllV(self) -> List[Vertex or Sink]:
-        all_v = list()
-        for mid_or_right in self:
-            if self.g.is_mid(mid_or_right):
-                all_v.append(Vertex(self.g, mid_or_right))
-            else:
-                all_v.append(Sink(self.g, mid_or_right))
-        return all_v
-
-    def GetLimit(self, n: int) -> List[str]:
-        r = []
-        count = 0
-        for mid in self:
-            r.append(mid)
-            if count >= n:
-                break
-        return r
-
-    def GetLimitV(self, n: int) -> List[Vertex]:
-        r = []
-        count = 0
-        for mid in self:
-            r.append(Vertex(self.g, mid))
-            if count >= n:
-                break
-        return r
-
-
-class KnowledgeGraph(object):
-
-    def __init__(self, *, verify_namespace=True):
-        self.mid_map = dict()  # mapping MIDs to named edges objects
-        self.right_map = dict()  # mapping all Edge.right to MIDs
-        self.verify = verify_namespace
-
-    def __contains__(self, mid_or_right: str):
-        return mid_or_right in self.mid_map or mid_or_right in self.right_map
-
-    @staticmethod
-    def __random_mid(length: int = 10) -> str:
-        """Generate random machine ID"""
-        return "mid:" + "".join(choices(ascii_letters + digits, k=length))
-
-    def generate_mid(self) -> str:
-        for _ in range(4):
-            mid = self.__random_mid()
-            if mid not in self:
-                return mid
-        raise Exception("KnowledgeGraph MID space exhausted. Too many retries for generating MID.")
-
-    def is_mid(self, mid: str) -> bool:
-        return mid.startswith("mid:") and mid in self.mid_map
-
-    def is_right(self, right: str) -> bool:
-        return right in self.right_map
-
-    def get_v(self, mid_or_right) -> Vertex or str:
-        if mid_or_right in self.mid_map:
-            return Vertex(self, mid_or_right)
-        else:
-            return mid_or_right
-
-    def add(self, name: str or "Ns", right_or_vertex: str or Vertex, *,
-            mid_or_vertex: str or Vertex or None = None) -> Vertex:
-        # logger.warn(name, mid_or_vertex, right_or_vertex)
-        # assert type(name) is str
-        # assert type(mid_or_vertex) is str or type(mid_or_vertex) is Vertex or mid_or_vertex is None
-        # assert type(right_or_vertex) is str or type(right_or_vertex) is Vertex
-
-        if type(name) is not Ns:
-            name = Ns(name, check=self.verify)
-
-        if self.verify and not name.is_known():
-            raise NamespaceError(f"Unknown namespace identifier {name}")
-
-        mid_or_vertex = mid_or_vertex or self.generate_mid()
-        if type(mid_or_vertex) is Vertex:
-            mid_or_vertex = mid_or_vertex.mid
-        if type(right_or_vertex) is Vertex:
-            right_or_vertex = right_or_vertex.mid
-            assert self.is_right(right_or_vertex) or self.is_mid(right_or_vertex)
-
-        if mid_or_vertex not in self.mid_map:
-            self.mid_map[mid_or_vertex] = dict()
-        if name not in self.mid_map[mid_or_vertex]:
-            self.mid_map[mid_or_vertex][name] = set()
-        self.mid_map[mid_or_vertex][name].add(right_or_vertex)
-
-        if right_or_vertex not in self.right_map:
-            self.right_map[right_or_vertex] = dict()
-        if name not in self.right_map[right_or_vertex]:
-            self.right_map[right_or_vertex][name] = set()
-        self.right_map[right_or_vertex][name].add(mid_or_vertex)
-
-        return Vertex(self, mid_or_vertex)
-
-    def __delete_edge(self, mid: str, name: str, right: str):
-        self.mid_map[mid][name].remove(right)
-        self.right_map[right][name].remove(mid)
-        if len(self.right_map[right][name]) == 0:
-            del self.right_map[right][name]
-
-    def delete_edge(self, edge: Edge):
-        self.__delete_edge(edge.mid, edge.name, edge.right)
-
-    def delete_vertex(self, mid: str or Vertex):
-        if type(mid) is Vertex:
-            mid = mid.mid
-        for name in self.mid_map[mid]:
-            for right in self.mid_map[mid][name]:
-                self.__delete_edge(mid, name, right)
-
-    def delete(self, mid_or_edge):
-        if type(mid_or_edge) is Edge:
-            self.delete_edge(mid_or_edge)
-        else:
-            self.delete_vertex(mid_or_edge)
-
-    def __iter__(self):
-        for mid in self.mid_map:
-            yield from self.mid_map[mid].values()
-
-    def edge_namespace(self) -> Set[str]:
-        names = set()
-        for name_map in self.mid_map.values():
-            for name in name_map.keys():
-                names.add(name)
-        return names
-
-    def as_dict(self) -> dict:
-        """Return deep copy dict representation of the graph"""
-        r = deepcopy(self.mid_map)
-        for nd in r.values():
-            for n in nd:
-                nd[n] = list(nd[n])
-        return r
-
-    def as_json(self, pretty=False) -> str:
-        """Return JSON representation of the graph"""
-        if pretty:
-            return dumps(self.as_dict(), indent=4, sort_keys=True)
-        else:
-            return dumps(self.as_dict())
-
-    def from_dict(self, data: dict):
-        self.mid_map = dict()
-        self.right_map = dict()
-        for mid in data:
-            for name, right_set in data[mid].items():
-                for right in right_set:
-                    self.add(mid_or_vertex=mid, name=name, right_or_vertex=right)
-
-    def from_json(self, json_str: str):
-        self.from_dict(loads(json_str))
-
-    # def __e_iter(self, mid_or_right: str or None = None) -> Iterator[Edge]:
-    #     if mid_or_right is None:
-    #         yield from self.g
-    #     else:
-    #         if mid_or_right in self.mid_map:
-    #             yield from self.mid_map[mid_or_right].values()
-    #         if mid_or_right in self.right_map:
-    #             for name, mid_set in self.right_map[mid_or_right].items():
-    #                 for mid in mid_set:
-    #                     yield self.mid_map[mid][name]
-    #
-    # def E(self, mid_or_right: str or None = None) -> EdgeQuery:
-    #     return EdgeQuery(graph=self, pipe=self.__e_iter(mid_or_right))
-
-    def __v_iter(self, mid_or_right: str or List[str] or Vertex or List[Vertex] or None) -> Iterator[str]:
-        yielded = set()
-        if mid_or_right is None:
-            for mid in self.mid_map:
-                if mid in yielded:
-                    continue
-                yielded.add(mid)
-                yield mid
-            for right in self.right_map:
-                if right not in yielded:
-                    yielded.add(right)
-                    yield right
-        elif type(mid_or_right) is str:
-            if mid_or_right in self.mid_map:
-                if mid_or_right not in yielded:
-                    yielded.add(mid_or_right)
-                    yield mid_or_right
-            elif mid_or_right in self.right_map:
-                if mid_or_right not in yielded:
-                    yielded.add(mid_or_right)
-                    yield mid_or_right
-        elif type(mid_or_right) is Vertex:
-            yield mid_or_right.mid
-        elif type(mid_or_right) is list:
-            for str_or_vertex in mid_or_right:
-                if type(str_or_vertex) is str:
-                    if str_or_vertex in self.mid_map:
-                        if str_or_vertex not in yielded:
-                            yielded.add(str_or_vertex)
-                            yield str_or_vertex
-                    elif str_or_vertex in self.right_map:
-                        if str_or_vertex not in yielded:
-                            yielded.add(str_or_vertex)
-                            yield str_or_vertex
-                elif type(str_or_vertex) is Vertex:
-                    yield str_or_vertex.mid
-                else:
-                    raise Exception(f"Graph can't iterate unsupported type in list {type(str_or_vertex)}")
-        else:
-            raise Exception(f"Graph can't iterate unsupported type {type(mid_or_right)}")
-
-    def V(self, mid_or_right: str or List[str] or Vertex or List[Vertex] or None = None) -> VertexQuery:
-        return VertexQuery(graph=self, pipe=self.__v_iter(mid_or_right))
-
-    def to_x(self):
-        g = nx.DiGraph()
-        for mid in self.mid_map:
-            for edge_name in self.mid_map[mid]:
-                for right in self.mid_map[mid][edge_name]:
-                    g.add_edge(mid, right, t=edge_name)
-        return g
-
-
-# Plotting:
-# https://stackoverflow.com/questions/20381460/networkx-how-to-show-node-and-edge-attributes-in-a-graph-drawing
-
 class Entity(ABC):
     """
     Base clas for KnowledgeGraph entities which can be a subject, or a string literal.
@@ -575,12 +206,15 @@ class Entity(ABC):
       - Contain a reference Entity.g to their base graph
     """
 
-    def __init__(self, g: "KnowledgeGraphX"):
+    def __init__(self, g: "KnowledgeGraph"):
         self.g = g
 
     @abstractmethod
     def __str__(self) -> str:
-        return ""
+        pass
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}('{str(self)}')"
 
     def __hash__(self) -> int:
         return hash(str(self))
@@ -589,14 +223,16 @@ class Entity(ABC):
         return str(self) == str(other)
 
     @abstractmethod
+    def add_relation(self, predicate: Ns, entity: "Entity") -> None:
+        pass
+
+    @abstractmethod
     def relations_to(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
-        del via
-        yield from ()
+        pass
 
     @abstractmethod
     def relations_from(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
-        del via
-        yield from ()
+        pass
 
 
 class Subject(Entity):
@@ -611,7 +247,7 @@ class Subject(Entity):
         """Generate random machine ID"""
         return "mid:" + "".join(choices(ascii_letters + digits, k=length))
 
-    def __init__(self, parent_graph: "KnowledgeGraphX", *, mid: str = None):
+    def __init__(self, parent_graph: "KnowledgeGraph", *, mid: str = None):
         super().__init__(parent_graph)
         self.__mid = mid or self.__random_mid()
 
@@ -622,17 +258,18 @@ class Subject(Entity):
     def mid(self) -> str:
         return self.__mid
 
-    def add_relation(self, predicate: Ns, entity: "Subject" or "Literal") -> None:
+    def add_relation(self, predicate: Ns, entity: Entity or str) -> None:
         self.g.add_relation(self, predicate, entity)
 
-    def relations_to(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+    def add(self, predicate: Ns, entity: Entity or str) -> None:
+        """Alias for Subject.add_relation()"""
+        self.add_relation(predicate, entity)
+
+    def relations_to(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, Entity]]:
         yield from self.g.relations_to(self, via)
 
-    def relations_from(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
+    def relations_from(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, Entity]]:
         yield from self.g.relations_from(self, via)
-
-    def __repr__(self) -> str:
-        return f"Subject('{self.mid}')"
 
 
 class Literal(Entity):
@@ -642,15 +279,21 @@ class Literal(Entity):
     Its string representation is its string value Literal.s.
     """
 
-    def __init__(self, parent_graph: "KnowledgeGraphX", string_value: str):
+    def __init__(self, parent_graph: "KnowledgeGraph", string_value: str):
         super().__init__(parent_graph)
         self.s = string_value
 
     def __str__(self) -> str:
         return self.s
 
-    def __repr__(self) -> str:
-        return f"Literal('{self.s}')"
+    def add_relation(self, predicate: Ns, subject: Subject) -> None:
+        if type(subject) is not Subject:
+            raise ValueError(f"Literal must be related with Subject, not {type(subject)}")
+        self.g.add_relation(subject, predicate, self)
+
+    def add(self, predicate: Ns, subject: Subject) -> None:
+        """Alias for Literal.add_relation()"""
+        self.add_relation(predicate, subject)
 
     def relations_to(self, via: Ns = None) -> Iterator[Tuple["Subject", Ns, "Entity"]]:
         yield from self.g.relations_to(self, via)
@@ -660,7 +303,7 @@ class Literal(Entity):
         yield from ()
 
 
-class KnowledgeGraphX(object):
+class KnowledgeGraph(object):
     """
     Simplified implementation of a knowledge graph-like structure
 
@@ -686,6 +329,9 @@ class KnowledgeGraphX(object):
         self.ns = namespace
         self.literals_index = {}
 
+    def __contains__(self, entity: Entity or str):
+        return entity in self.g or entity in self.literals_index
+
     @staticmethod
     def is_mid(s: str) -> bool:
         return str(s).startswith("mid:")
@@ -702,7 +348,7 @@ class KnowledgeGraphX(object):
         """Create a new literal"""
         return Literal(self, string_value)
 
-    def add_relation(self, subject: Subject, predicate: Ns, entity: Subject or Literal or str) -> Subject:
+    def add_relation(self, subject: Subject, predicate: Ns, entity: Entity or str) -> Subject:
         """
         Add a triple for given subject, predicate, and object.
 
@@ -722,15 +368,25 @@ class KnowledgeGraphX(object):
                 self.g.node[subject][predicate].add(entity)
             else:
                 self.g.node[subject][predicate] = {entity}
+
+            # Update literals index
+            if entity not in self.literals_index:
+                self.literals_index[entity] = {predicate: {(subject, predicate, entity)}}
+            elif predicate not in self.literals_index[entity]:
+                self.literals_index[entity][predicate] = {(subject, predicate, entity)}
+            else:
+                self.literals_index[entity][predicate].add((subject, predicate, entity))
+
         else:
             raise ValueError(f"Entity has unsupported type `{type(entity)}`")
+
         return subject
 
-    def add(self, subject: Subject, predicate: Ns, entity: Subject or Literal) -> Subject:
+    def add(self, subject: Subject, predicate: Ns, entity: Entity or str) -> Subject:
         """Alias for .add_relation()"""
         return self.add_relation(subject, predicate, entity)
 
-    def remove_relation(self, subject: Subject, predicate: Ns, entity: Subject or Literal):
+    def remove_relation(self, subject: Subject, predicate: Ns, entity: Entity or str):
         """
         Forget about the predicate relation between a subject and an entity.
 
@@ -739,16 +395,49 @@ class KnowledgeGraphX(object):
         :param entity:
         :return: None
         """
-        self.g.remove_edge(subject, entity, predicate=predicate)
+        if type(entity) is str:
+            entity = self.literal(entity)
+        if type(entity) is Subject:
+            self.g.remove_edge(subject, entity, predicate=predicate)
+        elif type(entity) is Literal:
+            self.g.node[subject][predicate].remove(entity)
+            self.literals_index[entity][predicate].remove((subject, predicate, entity))
+            if len(self.literals_index[entity][predicate]) == 0:
+                del self.literals_index[entity][predicate]
+            if len(self.literals_index[entity]) == 0:
+                del self.literals_index[entity]
+        else:
+            raise ValueError("Can only remove relations between entities")
 
-    def remove_entity(self, entity: Subject or Literal):
+    def remove_entity(self, entity: Entity or str):
         """
         Forget about all relations with an entity.
 
         :param entity:
         :return: None
         """
-        self.g.remove_node(entity)
+        if type(entity) is str:
+            entity = self.literal(entity)
+        if type(entity) is Subject:
+            # Update literals index while node still exists and edges are still iterable
+            for _, to_relation, to_entity in self.relations_from(entity):
+                if type(to_entity) is Literal:
+                    self.literals_index[to_entity][to_relation].remove((entity, to_relation, to_entity))
+                    if len(self.literals_index[to_entity][to_relation]) == 0:
+                        del self.literals_index[to_entity][to_relation]
+                    if len(self.literals_index[to_entity]) == 0:
+                        del self.literals_index[to_entity]
+            self.g.remove_node(entity)
+        elif type(entity) is Literal:
+            for subject, predicate, _ in self.relations_to(entity):
+                self.g.node[subject][predicate].remove(entity)
+                self.literals_index[entity][predicate].remove((subject, predicate, entity))
+                if len(self.literals_index[entity][predicate]) == 0:
+                    del self.literals_index[entity][predicate]
+                if len(self.literals_index[entity]) == 0:
+                    del self.literals_index[entity]
+        else:
+            raise ValueError(f"Entity has unsupported type `{type(entity)}`")
 
     def entities(self) -> Iterator[Entity]:
         """
@@ -767,7 +456,7 @@ class KnowledgeGraphX(object):
                         yielded.add(literal)
                         yield literal
 
-    def subjects(self) -> Iterator[Entity]:
+    def subjects(self) -> Iterator[Subject]:
         """
         Iterate over all subjects
         """
@@ -799,40 +488,48 @@ class KnowledgeGraphX(object):
 
     def relations_from(self, entity: Entity, via: Ns = None) -> Iterator[Tuple[Subject, Ns, Entity]]:
         if type(entity) is Subject:
-            for predicate, literals in self.g.node[entity].items():
-                if type(predicate) is not Ns:
-                    continue
-                if via is not None and predicate != via:
-                    continue
-                for literal in literals:
-                    yield entity, predicate, literal
-            for successor in self.g.successors(entity):
-                for edge_data in self.g.get_edge_data(entity, successor).values():
-                    predicate = edge_data["predicate"]
+            try:
+                for predicate, literals in self.g.node[entity].items():
                     if type(predicate) is not Ns:
                         continue
                     if via is not None and predicate != via:
                         continue
-                    yield entity, predicate, successor
+                    for literal in literals:
+                        yield entity, predicate, literal
+                for successor in self.g.successors(entity):
+                    for edge_data in self.g.get_edge_data(entity, successor).values():
+                        predicate = edge_data["predicate"]
+                        if type(predicate) is not Ns:
+                            continue
+                        if via is not None and predicate != via:
+                            continue
+                        yield entity, predicate, successor
+            except nx.exception.NetworkXError as e:
+                raise KeyError(f"Unknown subject `{entity}`") from e
 
     def relations_to(self, entity: Entity, via: Ns = None) -> Iterator[Tuple[Subject, Ns, Entity]]:
         if type(entity) is Subject:
-            for predecessor in self.g.predecessors(entity):
-                for edge_data in self.g.get_edge_data(predecessor, entity).values():
-                    predicate = edge_data["predicate"]
-                    if type(predicate) is not Ns:
-                        continue
-                    if via is not None and predicate != via:
-                        continue
-                    yield predecessor, predicate, entity
+            try:
+                for predecessor in self.g.predecessors(entity):
+                    for edge_data in self.g.get_edge_data(predecessor, entity).values():
+                        predicate = edge_data["predicate"]
+                        if type(predicate) is not Ns:
+                            continue
+                        if via is not None and predicate != via:
+                            continue
+                        yield predecessor, predicate, entity
+            except nx.exception.NetworkXError as e:
+                raise KeyError(f"Unknown subject `{entity}`") from e
         elif type(entity) is Literal:
-            # FIXME: Iterating all relations is a dumb, slow approach. Speed this up by using a literals index.
-            logger.warning("FIXME: the .relations_to() implementation is awfully slow for literals")
-            for subject, predicate, to_entity in self.relations(via):
-                if to_entity == entity:
+            try:
+                for predicate in list(self.literals_index[entity]):
                     if via is not None and predicate != via:
                         continue
-                    yield subject, predicate, entity
+                    # Must iterate over a list copy, because literals index might change outside iterator,
+                    # resulting in RuntimeError: Set changed size during iteration
+                    yield from list(self.literals_index[entity][predicate])
+            except KeyError as e:
+                raise KeyError(f"Unknown literal `{entity}`") from e
         else:
             raise ValueError(f"Unsupported entity type `{type(entity)}`")
 
@@ -847,6 +544,9 @@ class KnowledgeGraphX(object):
         return nx.generate_graphml(g)
 
     def draw(self):
+
+        # Plotting:
+        # https://stackoverflow.com/questions/20381460/networkx-how-to-show-node-and-edge-attributes-in-a-graph-drawing
 
         # Compile list of edge labels
         edge_labels = {}
@@ -884,9 +584,12 @@ class KnowledgeGraphX(object):
         if start is None:
             yield from self.entities()
         elif type(start) is list:
-            yield from start
+            for entity in start:
+                if entity in self:
+                    yield entity
         else:
-            yield start
+            if start in self:
+                yield start
 
     def V(self, start: str or Entity or List[Entity or str] or Tuple[Entity or str] = None) -> "Gromlin":
         """Start a Gromlin query pipe"""
@@ -906,8 +609,8 @@ class KnowledgeGraphX(object):
 class Gromlin(object):
     """Minimalist knowledge graph query language inspired by Apache Gremlin"""
 
-    def __init__(self, graph: KnowledgeGraphX, pipe: Iterator[Entity]):
-        self.g: KnowledgeGraphX = graph
+    def __init__(self, graph: KnowledgeGraph, pipe: Iterator[Entity]):
+        self.g: KnowledgeGraph = graph
         self.p: Iterator[Entity] = pipe
 
     def __iter__(self) -> Iterator[Entity]:
@@ -929,7 +632,7 @@ class Gromlin(object):
                 yield subject
 
     def Has(self, relation: Ns, entity: Entity or str = None) -> "Gromlin":
-        """Only select entities that have given relation with an entity."""
+        """Only select entities that have given relation with piped ones"""
         if type(entity) is str:
             entity = self.g.literal(entity)
         return Gromlin(self.g, pipe=self.__has_yield(relation, entity))
@@ -946,7 +649,7 @@ class Gromlin(object):
                 yield to_entity
 
     def Out(self, via: Ns = None) -> "Gromlin":
-        """Move to all entities that this one points to, via edges named `via`"""
+        """Move on to all entities that piped ones point to, via edges named `via`"""
         return Gromlin(self.g, pipe=self.__out_yield(via))
 
     def __in_yield(self, via: Ns or None) -> Iterator[Subject]:
@@ -959,7 +662,7 @@ class Gromlin(object):
                 yield from_subject
 
     def In(self, via: Ns = None) -> "Gromlin":
-        """Move to all entities that point to this one, via edges named `via`"""
+        """Move on to all entities that point to piped ones, via edges named `via`"""
         return Gromlin(self.g, pipe=self.__in_yield(via))
 
     def All(self) -> List[Entity]:
@@ -967,9 +670,8 @@ class Gromlin(object):
 
     def GetLimit(self, n: int) -> List[Entity]:
         result = []
-        count = 0
         for entity in self.p:
             result.append(entity)
-            if count >= n:
+            if len(result) >= n:
                 break
         return result

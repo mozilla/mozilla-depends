@@ -98,7 +98,8 @@ class RetireDependencyDetector(DependencyDetector):
 
         logger.debug(f"Processing file {fp}")
         rel_path = str(fp.relative_to(self.hg.path))
-        fv = self.g.add("ns:fx.mc.file.path", rel_path)
+        fv = self.g.new_subject()
+        fv.add(Ns().fx.mc.file.path, rel_path)
 
         for r in data["results"]:
             library_name = r["component"]
@@ -106,20 +107,22 @@ class RetireDependencyDetector(DependencyDetector):
 
             # Get existing library node or create one
             try:
-                lv = self.g.V(library_name).In("ns:fx.mc.lib.name").Has("ns:language.name", "js").AllV()[0]
+                lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "js").All()[0]
             except IndexError:
-                lv = self.g.add("ns:fx.mc.lib.name", library_name)
-                lv.add("ns:language.name", "js")
+                lv = self.g.new_subject()
+                lv.add(Ns().fx.mc.lib.name, library_name)
+                lv.add(Ns().language.name, "js")
 
-            dv = self.g.add("ns:fx.mc.lib.dep.name", library_name)
-            dv.add("ns:fx.mc.lib", lv)
-            dv.add("ns:language.name", "js")
-            dv.add("ns:fx.mc.detector.name", self.name())
-            dv.add("ns:version.spec", library_version)
-            dv.add("ns:version.type", "generic")
-            dv.add("ns:fx.mc.dir.path", rel_top_path)
+            dv = self.g.new_subject()
+            dv.add(Ns().fx.mc.lib.dep.name, library_name)
+            dv.add(Ns().fx.mc.lib, lv)
+            dv.add(Ns().language.name, "js")
+            dv.add(Ns().fx.mc.detector.name, self.name())
+            dv.add(Ns().version.spec, library_version)
+            dv.add(Ns().version.type, "generic")
+            dv.add(Ns().fx.mc.dir.path, rel_top_path)
 
-            fv.add("ns:fx.mc.file.part_of", dv)
+            fv.add(Ns().fx.mc.file.part_of, dv)
 
 # """
 #  {'file': '/home/cr/src/mozilla-unified/mobile/android/tests/browser/chrome/tp5/
@@ -159,11 +162,12 @@ class RetireDependencyDetector(DependencyDetector):
                     logger.error(f"Unexpected vulnerability identifier in `{repr(vuln['identifiers'])}`")
                     continue
                 try:
-                    vv = self.g.V(ident).In(Ns().vuln.id).AllV()[0]
+                    vv = self.g.V(ident).In(Ns().vuln.id).All()[0]
                     logger.debug(f"Updating existing vulnerability node for {ident}")
                 except IndexError:
                     logger.debug(f"Creating new vulnerability node for {ident}")
-                    vv = self.g.add(Ns().vuln.id, ident)
+                    vv = self.g.new_subject()
+                    vv.add(Ns().vuln.id, ident)
                 if "summary" in vuln["identifiers"]:
                     vv.add(Ns().vuln.summary, vuln["identifiers"]["summary"])
                 vv.add(Ns().vuln.severity, vuln["severity"])

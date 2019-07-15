@@ -15,6 +15,7 @@ from typing import Iterator, Tuple, Iterable, List
 from subprocess import run, PIPE, DEVNULL, CalledProcessError
 
 from .basedetector import DependencyDetector
+from ..knowledgegraph import Ns
 
 # tempfile.mkdtemp(suffix=None, prefix=None, dir=None
 
@@ -245,13 +246,17 @@ class PythonDependencyDetector(DependencyDetector):
         setup_files = list(self.hg.find("setup.py"))
         results = bulk_process(self.state["venv"], setup_files)
 
-        for result in results:
+        for result in results.values():
             self.process(result)
 
     def process(self, arg):
-        return
 
-        setup_path, library_name, library_version, upstream_version, repo_url = arg
+        setup_path = arg["setup_path"]
+        library_name = arg["package_name"]
+        library_version = arg["installed_version"]
+        upstream_version = arg["upstream_version"]
+        repo_url = arg["upstream_repo"]
+
         logger.debug(f"Adding package info: {library_name} {library_version} {upstream_version} {repo_url}")
 
         # Various ways of parsing setup.py, but we chose to pipe them through pipenv
@@ -298,12 +303,14 @@ class PythonDependencyDetector(DependencyDetector):
 
         # Get existing library node or create one
         try:
-            lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").AllV()[0]
+            lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
         except IndexError:
-            lv = self.g.add(Ns().fx.mc.lib.name, library_name)
+            lv = self.g.new_subject()
+            lv.add(Ns().fx.mc.lib.name, library_name)
             lv.add(Ns().language.name, "cpp")
 
-        dv = self.g.add(Ns().fx.mc.lib.dep.name, library_name)
+        dv = self.g.new_subject()
+        dv.add(Ns().fx.mc.lib.dep.name, library_name)
         dv.add(Ns().fx.mc.lib, lv)
         dv.add(Ns().language.name, "python")
         dv.add(Ns().fx.mc.detector.name, self.name())
@@ -319,5 +326,6 @@ class PythonDependencyDetector(DependencyDetector):
         for f in setup_path.parent.rglob("*"):
             logger.debug(f"Processing file {f}")
             rel_path = str(f.relative_to(self.hg.path))
-            fv = self.g.add(Ns().fx.mc.file.path, rel_path)
+            fv = self.g.new_subject()
+            fv.add(Ns().fx.mc.file.path, rel_path)
             fv.add(Ns().fx.mc.file.part_of, dv)

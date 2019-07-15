@@ -35,7 +35,7 @@ class IpythonCommand(BaseCommand):
     def run(self) -> int:
         repo_dir = self.args.tree.resolve()
 
-        g = kg.KnowledgeGraphX()
+        g = kg.KnowledgeGraph()
 
         lib_x = g.new_subject({kg.Ns().fx.mc.lib.name: "libx", })
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from subprocess import check_output
 from typing import Iterator, Iterable
 
-from .knowledgegraph import KnowledgeGraph
+from .knowledgegraph import KnowledgeGraph, Ns
 
 logger = getLogger(__name__)
 
@@ -64,7 +64,7 @@ def call_mach_and_parse(repo_path: Path, chunk: Iterator[str]) -> dict:
         if not line.startswith("  "):
             component = line
         else:
-w            # Any path from mach is relative to the mozilla repo topdir
+            # Any path from mach is relative to the mozilla repo topdir
             f = line.lstrip(" ")
             assert (repo_path / f).exists()
             component_map[f] = component
@@ -78,13 +78,13 @@ def files_to_components(files: Iterator[Path], chunk_size=50) -> Iterator[str]:
 
 def detect_components(repo_path: Path, g: KnowledgeGraph):
 
-    all_file_names = set(g.V().Has("ns:fx.mc.file.path").Out("ns:fx.mc.file.path"))
+    all_file_names = set(g.V().Has(Ns().fx.mc.file.path).Out(Ns().fx.mc.file.path))
     files_mapping = {}
     for chunk in chunked(all_file_names, 500):
-        files_mapping.update(call_mach_and_parse(repo_path, chunk))
+        files_mapping.update(call_mach_and_parse(repo_path, map(str, chunk)))
 
     for fp, c in files_mapping.items():
-        fv = g.V(fp).In("ns:fx.mc.file.path").GetLimitV(1)[0]
-        fv.add("ns:bz.product.component.name", c)
+        fv = g.V(fp).In(Ns().fx.mc.file.path).GetLimit(1)[0]
+        fv.add_relation(Ns().bz.product.component.name, c)
 
     return
