@@ -85,7 +85,7 @@ class RetireDependencyDetector(DependencyDetector):
             raise Exception("Retire.js failed to run, likely due to network error")
 
         for f in result:
-            if len(f["results"]) == 0:
+            if "results" not in f or len(f["results"]) == 0:
                 continue
             self.process(f)
 
