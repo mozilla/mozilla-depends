@@ -3,7 +3,7 @@
   "version": "0.0.1a1",
   "description": "Dummy package for installing mozilla-depends node dependencies",
   "dependencies": {
-    "retire": "1.4"
+    "retire": "^2.0.3"
   },
   "devDependencies": {},
   "scripts": {

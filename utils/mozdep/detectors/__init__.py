@@ -10,6 +10,7 @@ from typing import List
 
 from . import basedetector
 from . import mozyaml
+from . import nodejs
 from . import python
 from . import retirejs
 from . import rust
