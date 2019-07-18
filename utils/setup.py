@@ -23,7 +23,8 @@ INSTALL_REQUIRES = [
 TESTS_REQUIRE = [
     "coverage",
     "pytest",
-    "pytest-bdd"
+    "pytest-bdd",
+    "pytest-codestyle"
 ]
 
 
