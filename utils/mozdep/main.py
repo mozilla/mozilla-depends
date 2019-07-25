@@ -14,6 +14,7 @@ from pathlib import Path
 import sys
 from time import gmtime
 
+from . import cleanup
 from . import command
 
 # Initialize coloredlogs
@@ -88,6 +89,7 @@ def main(argv=None):
     global logger, tmp_dir, module_dir
 
     module_dir = split(__file__)[0]
+    cleanup.init()
 
     args = parse_args(argv)
 

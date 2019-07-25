@@ -5,125 +5,194 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from distutils.spawn import find_executable
-from json import load
+from json import load, loads, dump
 import logging
 from pathlib import Path
-from requests import get
-from semantic_version import Version, Spec, validate
-from tempfile import mkdtemp
-from typing import Iterator, Tuple, Iterable, List
+from shutil import rmtree
 from subprocess import run, PIPE, DEVNULL, CalledProcessError
+from tempfile import mkdtemp, TemporaryDirectory
+from typing import Iterator, Tuple, Iterable, List
 
 from .basedetector import DependencyDetector
-from ..knowledgegraph import Ns
-
-# tempfile.mkdtemp(suffix=None, prefix=None, dir=None
+from mozdep.knowledgegraph import Ns
+from mozdep.cleanup import CleanUp
 
 logger = logging.getLogger(__name__)
+tmp_dir = Path(mkdtemp(prefix="mozdep_nodeenv_"))
 
 
-def pip_check_result(venv: Path) -> Iterator[Tuple[str, str, str or None, str or None]]:
-    lines = run_venv(venv, "pip-check", "-c", str(venv / "bin" / "pip"), "-a").split("\n")
-    for l in lines:
-        if l.startswith("|"):
-            _, pkg, old, new, repo, _ = map(str.strip, l.split("|"))
-            if old == "Version":
-                continue
-            if repo == "":
-                repo = None
-            yield pkg, old, new, repo
+class RemoveTmpdir(CleanUp):
+    @staticmethod
+    def at_exit():
+        global tmp_dir
+        if tmp_dir.exists():
+            rmtree(tmp_dir)
 
 
-def make_venv(tmpdir: Path) -> Path:
-    venv = tmpdir / "venv"
-    logger.debug(f"Creating venv in {venv}")
-    cmd = ["virtualenv", "--clear", "--no-wheel", "--python=python2", str(venv)]
-    logger.debug("Running shell command `%s`" % " ".join(cmd))
-    run(cmd, check=True, stdout=DEVNULL, stderr=PIPE)
-    return venv
+class NodeError(Exception):
+    pass
 
 
-def run_venv(venv: Path, cmd: str, *args) -> str:
-    cmd = [str(venv / "bin" / cmd)] + list(args)
-    logger.debug("Running shell command `%s`" % " ".join(cmd))
-    p = run(cmd, check=True, stdout=PIPE, stderr=PIPE)
-    return p.stdout.decode("utf-8")
+class NodePackage(object):
+    def __init__(self, package: Path):
+        if package.name == "package.json":
+            self.dir = package.parent
+        elif (package / "package.json").exists():
+            self.dir = package
+        else:
+            raise NodeError(f"Unable to recognize node package at {package}")
+        self._json = None
+        self._lock = None
+
+    @property
+    def json(self):
+        if self._json is None:
+            with open(self.dir / "package.json") as f:
+                self._json = load(f)
+        return self._json
+
+    @property
+    def lock(self):
+        if self._lock is None and (self.dir / "package-lock.json").exists():
+            with open(self.dir / "package-lock.json") as f:
+                self._json = load(f)
+        return self._lock
 
 
-def run_pip(venv: Path, *args) -> str:
-    return run_venv(venv, "pip", *args)
+class NodeEnv(object):
+    def __init__(self, name: str = "default"):
+        global tmp_dir
+        self.npm_bin = find_executable("npm.exe") or find_executable("npm")
+        if self.npm_bin is None:
+            raise NodeError("Unable to find npm binary")
+        self.npm_bin = Path(self.npm_bin).absolute()
+        self.name = name
+        self.path = tmp_dir / self.name
+        # If node_modules does not exist, npm will start looking for one up the tree.
+        (self.path / "node_modules").mkdir(mode=0o755, parents=True, exist_ok=True)
+        if not (self.path / "package.json").exists():
+            with (self.path / "package.json").open("w") as f:
+                dump({
+                    "name": self.name,
+                    "version": "0.0.0",
+                    "description": "dummy package",
+                    "dependencies": {},
+                    "devDependencies": {},
+                    "license": "MPL-2.0",
+                    "private": True,
+                    "scripts": {
+                        "retire": "retire",
+                        "test": """echo "Error: no test specified" && exit 1"""
+                    }
+                }, f, indent=4)
+
+    def npm(self, args: List[str] = None, *, cwd=None):
+        args = args or []
+        npm_cmd = [str(self.npm_bin), "--prefix", str(self.path), "--json"] + args
+        logger.debug("Running `%s`", " ".join(npm_cmd))
+        p = run(npm_cmd, stdout=PIPE, stderr=PIPE, cwd=cwd or self.path)
+        # Some npm subcommands (ie. pack) litter into their json output
+        out = ""
+        for line in p.stdout.decode("utf-8").split("\n"):
+            if not line.startswith(">"):
+                out += line + "\n"
+        logger.debug("Command result: %s", repr(out))
+        return loads(out)
+
+    def list(self):
+        return self.npm(["list"])
+
+    def run(self, script: str, args: List[str] = None):
+        args = args or []
+        return self.npm(["run", script, "--"] + args)
+
+    def install(self, package: str or Path):
+        if issubclass(type(package), Path):
+            if package.name == "package.json":
+                package = package.parent
+            else:
+                if not (package / "package.json").exists():
+                    raise NodeError(f"No `package.json` in `{str(package)}`")
+
+        # npm refuses to copy local package files, always creates symlink.
+        # Only workaround seems o be to create tgz package first, then install that.
+        with TemporaryDirectory(prefix="npm_install_tgz_") as tmp:
+            pack_result = self.npm(["pack", str(package)], cwd=tmp)
+            if "error" in pack_result:
+                raise NodeError(f"npm pack failed: {repr(pack_result)}")
+            if len(pack_result) != 1:
+                raise NodeError(f"npm failed should deliver a single result: "
+                                f"{repr(pack_result)}")
+            install_result = self.npm(["install", "-P", "-E", "--ignore-scripts",
+                                       pack_result[0]["filename"]], cwd=tmp)
+            if "error" in install_result:
+                raise NodeError(f"npm failed: {repr(install_result)}")
+            return install_result
+
+    def audit(self):
+        return self.npm(["audit"])
 
 
-def check_pip_freeze(venv) -> Iterator[Tuple[str, str]]:
-    for line in run_pip(venv, "freeze").split("\n"):
-        if len(line) == 0:
-            continue
-        pkg, version = line.split("==")
-        yield pkg, version
-
-
-def check_package(venv: Path, pkg: Path) -> (Path, str, str or None, str or None):
-    if pkg.name == "setup.py":
-        pkg = pkg.parent
-    logger.info(f"Checking {pkg}")
-    before = set(pip_check_result(venv))
-    try:
-        run_pip(venv, "install", "--force-reinstall", "--no-deps", str(pkg))
-    except CalledProcessError as e:
-        raise e
-    after = set(pip_check_result(venv))
-    new = after - before
-    if len(new) == 0:
-        logger.warning(f"Package {str(pkg)} lacks upstream repo")
-        # Fall back to pip freeze
-        for name, version in check_pip_freeze(venv):
-            if name == pkg.name:
-                new.add((name, version, None, None))
-                break
-    if len(new) > 1:
-        logger.warning(f"Package {str(pkg)} has pulled multiple dependencies: {str(new)}")
-    for (name, old, new, repo) in new:
-        return name, old, new, repo
-
-
-def check_pip_show(venv: Path, pkg_list: List[str] or None = None) -> dict:
-    # Name: attrs
-    # Version: 18.1.0
-    # Summary: Classes Without Boilerplate
-    # Home-page: http://www.attrs.org/
-    # Author: Hynek Schlawack
-    # Author-email: hs@ox.cx
-    # License: MIT
-    # Location: /private/tmp/foenv/lib/python2.7/site-packages
-    # Requires:
-    # Required-by: pytest, mozilla-version
-    if pkg_list is None:
-        pkg_list = list(check_pip_freeze(venv))
-    try:
-        pip_out = run_pip(venv, "show", *[p for p, _ in pkg_list])
-    except CalledProcessError as e:
-        raise e
+def bulk_process(node_env, all_pkgs: Iterable[Path]):
     result = {}
-    line_dict = {}
-    for pkg_out in pip_out.split("\n---\n"):
-        for line in pkg_out.split("\n"):
-            if len(line) == 0:
-                continue
-            key, *value = line.split(": ")
-            value = ": ".join(value)
-            line_dict[key] = value
-            result[line_dict["Name"]] = line_dict
-    if len(line_dict) > 0:
-        result[line_dict["Name"]] = line_dict
-    return result
-
-
-def bulk_process(venv, all_pkgs: Iterable[Path]) -> dict:
-    result = dict()
     for p in all_pkgs:
-        with open(p) as f:
-            j = load(f)
-        result[p] = j
+        pkg = NodePackage(p)
+        if "private" in pkg.json and pkg.json["private"]:
+            logger.debug("Found private node package %s", p)
+        try:
+            package_name = pkg.json["name"].split("/")[-1]
+        except KeyError:
+            logger.warning("Skipping nameless package %s", p)
+            continue
+        try:
+            package_version = pkg.json["version"]
+        except KeyError:
+            logger.warning("Skipping versionless package %s", p)
+            continue
+        file_reference = pkg.dir / "package.json"
+        repository_url = None
+        if "repository" in pkg.json and type(pkg.json["repository"]) is str and len(pkg.json["repository"]) > 0:
+            repository_url = pkg.json["repository"]
+        if "repository" in pkg.json and type(pkg.json["repository"]) is dict and "url" in pkg.json["repository"]:
+            repository_url = pkg.json["repository"]["url"]
+        if package_name not in result:
+            result[package_name] = {}
+        if package_version not in result[package_name]:
+            result[package_name][package_version] = {}
+        else:
+            logger.warning(f"{package_name} {package_version} in {p} is vendored multiple times, skipping")
+            continue
+        result[package_name][package_version] = {
+            "name": package_name,
+            "version": package_version,
+            "repository": repository_url,
+            "file_ref": file_reference
+        }
+
+    for p in all_pkgs:
+        pkg = NodePackage(p)
+        if pkg.lock is None:
+            continue
+        for d in pkg.lock["dependencies"]:
+            dependency_name = d.split("/")[-1]
+            dependency_version = pkg.lock["dependencies"][d]["version"]
+            if dependency_name not in result:
+                logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
+                result[dependency_name] = {}
+            if dependency_version not in result[dependency_name]:
+                logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
+                result[dependency_name][dependency_version] = {}
+            else:
+                continue
+            result[dependency_name][dependency_version] = {
+                "name": dependency_name,
+                "version": dependency_version,
+                "repository": None,
+                "file_ref": pkg.dir / "package-lock.json"
+            }
+
+    from IPython import embed
+    embed()
     return result
 
 
@@ -142,31 +211,30 @@ class NodeDependencyDetector(DependencyDetector):
             logger.error("Cannot find `npm`")
             return False
 
-        tmpdir = Path(mkdtemp(prefix="mozdep_"))
-        try:
-            venv = make_venv(tmpdir)
-        except CalledProcessError as e:
-            logger.error(f"Error while creating node environment: {str(e)}")
-            return False
-        logger.debug(f"Created node environment in {venv}, installing `node-foo`")
-
-        # try:
-        #     run_pip(venv, "install", "pip-check")
-        # except CalledProcessError as e:
-        #     logger.error(f"Error while installing `pip-check`: {str(e)}")
-        #     return False
+        n = NodeEnv()
+        logger.debug(f"Created node environment in {n.path}")
 
         self.state = {
-            "tmpdir": tmpdir,
-            "venv": venv
+            "node_env": n
         }
 
         return True
 
     def run(self):
         # setup_files = list(self.hg.path.glob("third_party/python/*/setup.py"))
-        setup_files = list(self.hg.find("package.json"))
-        results = bulk_process(self.state["venv"], setup_files)
+        logger.debug("Scanning for `package.json` files")
+        package_files = list(self.hg.find("package.json"))
+        logger.debug("Found: %s", package_files)
+
+        logger.debug("Scanning for `package-lock.json` files")
+        lock_files = list(self.hg.find("package-lock.json"))
+        logger.debug("Found: %s", lock_files)
+        # Ensure there are no rogue lock files around
+        for l in lock_files:
+            if not (l.parent / "package.json").exists():
+                logger.warning("Found rogue lock file: %s", l)
+
+        results = bulk_process(self.state["node_env"], package_files)
 
         for result in results.items():
             self.process(result)
@@ -194,6 +262,7 @@ class NodeDependencyDetector(DependencyDetector):
             return
 
         print(f"{p}: {name}@{version}, {repo}, {private}, {deps}, {dev_deps}")
+
         return
 
         setup_path = arg["setup_path"]

@@ -5,11 +5,15 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 from pathlib import Path
+from re import compile
 from subprocess import run, PIPE, DEVNULL
 from typing import Iterator
 import logging
 
 logger = logging.getLogger(__name__)
+
+TEST_RE = compile(r".*/(unit|test|tests|mochitest|testing|jsapi-tests|reftests|reftest"
+                  r"|crashtests|crashtest|googletest|gtest|gtests|imptests)(/|$)")
 
 
 def get_mozilla_component(path: Path, tree: Path) -> str or None:
@@ -19,6 +23,10 @@ def get_mozilla_component(path: Path, tree: Path) -> str or None:
         return None
     else:
         return cmd_output.decode("utf-8").split("\n")[0]
+
+
+def is_test_path(p: str):
+    return TEST_RE.match(p)
 
 
 class HgRepo(object):
@@ -37,7 +45,7 @@ class HgRepo(object):
                 yield path
 
     @property
-    def source_stamp(self):
+    def source_stamp(self) -> str:
         if self.__source_stamp is None:
             cmd = ["hg", "id", "-r", "tip", "-T", "{rev}:{node}"]
             cmd_output = run(cmd, cwd=str(self.path), check=True, stdout=PIPE, stderr=DEVNULL).stdout
@@ -46,3 +54,7 @@ class HgRepo(object):
             else:
                 self.__source_stamp = cmd_output.decode("utf-8").strip("\n")
         return self.__source_stamp
+
+    @staticmethod
+    def is_test_path(path: Path) -> bool:
+        return is_test_path(str(path))

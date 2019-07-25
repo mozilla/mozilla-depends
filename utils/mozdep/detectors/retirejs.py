@@ -12,7 +12,7 @@ from subprocess import run, check_output, check_call, DEVNULL, CalledProcessErro
 from tempfile import mktemp
 
 from .basedetector import DependencyDetector
-from ..knowledgegraph import Ns
+from mozdep.knowledgegraph import Ns
 
 logger = logging.getLogger(__name__)
 
