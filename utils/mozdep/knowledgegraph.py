@@ -42,6 +42,7 @@ class Ns(str):
                         "part_of": None,
                         "in_component": None,
                     },
+                    "file_set": None,
                     "lib": {
                         "name": None,
                         "description": None,
@@ -83,6 +84,8 @@ class Ns(str):
             "vuln": {
                 "id": None,
                 "version_match": None,
+                "weakness_id": None,
+                "title": None,
                 "summary": None,
                 "description": None,
                 "class": None,
