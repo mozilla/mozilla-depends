@@ -6,7 +6,7 @@ from logging import getLogger
 import pytest
 from subprocess import run, PIPE
 
-from mozdep.main import guess_repo_path
+from mozdep.__main__ import guess_repo_path
 import mozdep.detectors.python as pydet
 
 logger = getLogger(__name__)

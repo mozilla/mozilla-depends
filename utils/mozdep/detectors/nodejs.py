@@ -163,17 +163,22 @@ class NodePackage(object):
     _npm_bin = find_executable("npm.exe") or find_executable("npm")
     _yarn_bin = find_executable("yarn.exe") or find_executable("yarn")
 
-    def __init__(self, package: Path):
+    def __init__(self, package: Path or str):
         if self._npm_bin is None:
             raise NodeError("Unable to find npm binary")
         if self._yarn_bin is None:
             raise NodeError("Unable to find yarn binary")
-        if package.name == "package.json":
+        if type(package) is str:
+            self.ref = package
+            self.dir = None
+        elif package.name == "package.json":
+            self.ref = None
             self.dir = package.parent
         elif (package / "package.json").exists():
+            self.ref = None
             self.dir = package
         else:
-            raise NodeError(f"Unable to recognize node package at {package}")
+            raise NodeError(f"Unable to recognize node package reference `{package}`")
         self._json: dict or None = None
         self._npm_lock: dict or None = None
         self._yarn_lock: list or None = None
@@ -215,10 +220,10 @@ class NodePackage(object):
 
     @property
     def yarn_lock(self):
-        if self._npm_lock is None and self.is_yarn_locked():
+        if self._yarn_lock is None and self.is_yarn_locked():
             with (self.dir / "yarn.lock").open() as f:
-                self._npm_lock = load(f)
-        return self._npm_lock
+                self._yarn_lock = load(f)
+        return self._yarn_lock
 
     def is_private(self):
         return "private" in self.json and self.json["private"]
@@ -273,11 +278,21 @@ class NodePackage(object):
 
     @property
     def name(self):
-        return self.json["name"] if "name" in self.json else None
+        if self.ref:
+            return "@".join(self.ref.split("@")[:-1])
+        if "name" in self.json:
+            return self.json["name"]
+        if self.dir:
+            return self.dir.name
+        return None
 
     @property
     def version(self):
-        return self.json["version"] if "version" in self.json else None
+        if self.ref:
+            return self.ref.split("@")[-1]
+        if "version" in self.json:
+            return self.json["version"]
+        return None
 
     @property
     def latest_version(self):
@@ -397,7 +412,6 @@ def bulk_process(node_env, all_pkgs: Iterable[Path]):
     - dependencies are registered regardless of their type, and regardless
       of whether they're actually loaded/used.
     """
-    result = {}
     unlocked_packages = set()
     npm_locked_packages = set()
     yarn_locked_packages = set()
@@ -440,18 +454,74 @@ def bulk_process(node_env, all_pkgs: Iterable[Path]):
         files = [p.dir / "package.json"]
 
         dependencies = {}
-        if p.npm_lock and "dependencies" in p.npm_lock:
-            for d in p.npm_lock["dependencies"]:
-                dependency_name = d
-                dependency_version = p.npm_lock["dependencies"][d]["version"]
-                if dependency_name not in dependencies:
-                    logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
-                    dependencies[dependency_name] = {}
-                if dependency_version not in dependencies[dependency_name]:
-                    logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
-                    dependencies[dependency_name][dependency_version] = {}
-                else:
+        # if p.npm_lock and "dependencies" in p.npm_lock:
+        #     for d in p.npm_lock["dependencies"]:
+        #         dependency_name = d
+        #         dependency_version = p.npm_lock["dependencies"][d]["version"]
+        #         if dependency_name not in dependencies:
+        #             logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
+        #             dependencies[dependency_name] = {}
+        #         if dependency_version not in dependencies[dependency_name]:
+        #             logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
+        #             dependencies[dependency_name][dependency_version] = {}
+        #         else:
+        #             continue
+        #         if dependency_name not in dependencies:
+        #             dependencies[dependency_name] = {}
+        #         if dependency_version not in dependencies[dependency_name]:
+        #             dependencies[dependency_name][dependency_version] = {}
+        #         dependencies[dependency_name][dependency_version] = {
+        #             "name": dependency_name,
+        #             "version": dependency_version,
+        #             "repository": "",
+        #             "required_by": p.dir / "package.json"
+        #         }
+        # if p.npm_lock and "_shrinkwrap" in p.npm_lock:
+        #     for d in p.npm_lock["_shrinkwrap"]:
+        #         dependency_name = d
+        #         dependency_version = p.npm_lock["_shrinkwrap"][d]["version"]
+        #         if dependency_name not in dependencies:
+        #             logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
+        #             dependencies[dependency_name] = {}
+        #         if dependency_version not in dependencies[dependency_name]:
+        #             logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
+        #             dependencies[dependency_name][dependency_version] = {}
+        #         else:
+        #             continue
+        #         if dependency_name not in dependencies:
+        #             dependencies[dependency_name] = {}
+        #         if dependency_version not in dependencies[dependency_name]:
+        #             dependencies[dependency_name][dependency_version] = {}
+        #         dependencies[dependency_name][dependency_version] = {
+        #             "name": dependency_name,
+        #             "version": dependency_version,
+        #             "repository": "",
+        #             "required_by": p.dir / "package.json"
+        #         }
+
+        # Flatten the dependency tree
+        # TODO: represent as actual tree
+        if p.npm_list and "dependencies" in p.npm_list:
+            sections = ("dependencies", "devDependencies", "optionalDependencies")
+            todo = []
+            for section in sections:
+                if section in p.npm_list and type(p.npm_list[section]) is not dict:
                     continue
+                todo += [x for x in p.npm_list[section].values()] if section in p.npm_list else []
+            while len(todo) > 0:
+                d = todo.pop()
+                if "name" not in d:
+                    logger.warning(f"Skipping nameless dependency for {p}")
+                    continue
+                dependency_name = d["name"]
+                dependency_version = d["version"]
+                if dependency_version.startswith("^"):
+                    continue
+                if dependency_version.startswith("="):
+                    logger.error("Don't know how to handle pinned dependency %s@%s in %s",
+                                 dependency_name, dependency_version, p)
+                    continue
+                dependency_path = Path(d["path"]) if "path" in d else None
                 if dependency_name not in dependencies:
                     dependencies[dependency_name] = {}
                 if dependency_version not in dependencies[dependency_name]:
@@ -459,36 +529,20 @@ def bulk_process(node_env, all_pkgs: Iterable[Path]):
                 dependencies[dependency_name][dependency_version] = {
                     "name": dependency_name,
                     "version": dependency_version,
-                    "repository": "",
-                    "required_by": p.dir / "package.json"
+                    "package_path": dependency_path / "package.json" if dependency_path else None,
+                    "required_by": p
                 }
-        if p.npm_lock and "_shrinkwrap" in p.npm_lock:
-            for d in p.npm_lock["_shrinkwrap"]:
-                dependency_name = d
-                dependency_version = p.npm_lock["_shrinkwrap"][d]["version"]
-                if dependency_name not in dependencies:
-                    logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
-                    dependencies[dependency_name] = {}
-                if dependency_version not in dependencies[dependency_name]:
-                    logger.warning(f"{p} list dependency {dependency_name} {dependency_version} outside tree")
-                    dependencies[dependency_name][dependency_version] = {}
-                else:
-                    continue
-                if dependency_name not in dependencies:
-                    dependencies[dependency_name] = {}
-                if dependency_version not in dependencies[dependency_name]:
-                    dependencies[dependency_name][dependency_version] = {}
-                dependencies[dependency_name][dependency_version] = {
-                    "name": dependency_name,
-                    "version": dependency_version,
-                    "repository": "",
-                    "required_by": p.dir / "package.json"
-                }
+                # Descent into dependency tree
+                for section in sections:
+                    if section in d and type(d[section]) is not dict:
+                        continue
+                    todo += [x for x in d[section].values()] if section in d else []
 
         if name not in result:
             result[name] = {}
         if version not in result[name]:
             result[name][version] = {}
+        result[name][version]["pkg"] = p
         result[name][version]["name"] = name
         result[name][version]["version"] = version
         result[name][version]["repository"] = repo
@@ -596,47 +650,49 @@ class NodeDependencyDetector(DependencyDetector):
         logger.info("Looking for `package.json` files...")
         package_files = list(self.hg.find("package.json"))
         logger.debug("Found: %s", package_files)
-        results = bulk_process(self.state["node_env"], package_files[1:3])
+        results = bulk_process(self.state["node_env"], package_files)
         for package_name in results:
             for package_version in results[package_name]:
                 self.process(results[package_name][package_version])
 
         # Figure out the vulnerabilities
         # TODO: Make this work for yarn-locked and unlocked packages as well
-        for p in map(NodePackage, package_files):
-            if p.is_npm_locked() and "advisories" in p.npm_audit:
-                for adv in p.npm_audit["advisories"].values():
-                    dep_name = adv["module_name"]
-                    links = [adv["url"]]
-                    title = adv["title"]
-                    severity = adv["severity"]
-                    description = adv["overview"] + " " + adv["recommendation"]
-                    weakness = adv["cwe"]
-                    for finding in adv["findings"]:
-                        dep_version = finding["version"]
-                        logger.critical("Vulnerability %s affecting %s@%s, looking for nodes", "npm-" + str(adv["id"]),
-                                        dep_name, dep_version)
-                        deps = self.g.V(dep_name).In(Ns().fx.mc.lib.dep.name).Has(Ns().version.spec, dep_version)\
-                                   .Has(Ns().language.name, "nodejs").All()
-                        logger.critical("Found: %s", repr(deps))
-                        for dep in deps:
-                            ku.learn_vulnerability(self.g,
-                                                   vulnerability_identifier="npm-" + adv["id"],
-                                                   database="npm",
-                                                   info_links=links,
-                                                   affects=[dep],
-                                                   title=title,
-                                                   description=description,
-                                                   weakness_identifier=weakness,
-                                                   severity=severity)
+        for pkg_name in results:
+            for pkg_version in results[pkg_name]:
+                p = results[pkg_name][pkg_version]["pkg"]
+                if p.is_npm_locked() and "advisories" in p.npm_audit:
+                    for adv in p.npm_audit["advisories"].values():
+                        dep_name = adv["module_name"]
+                        links = [adv["url"]]
+                        title = adv["title"]
+                        severity = adv["severity"]
+                        description = adv["overview"] + " " + adv["recommendation"]
+                        weakness = adv["cwe"]
+                        for finding in adv["findings"]:
+                            dep_version = finding["version"]
+                            logger.critical("Vulnerability %s affecting %s@%s, looking for nodes", "npm-" + str(adv["id"]),
+                                            dep_name, dep_version)
+                            deps = self.g.V(dep_name).In(Ns().fx.mc.lib.dep.name).Has(Ns().version.spec, dep_version)\
+                                       .Has(Ns().language.name, "nodejs").All()
+                            logger.critical("Found: %s", repr(deps))
+                            for dep in deps:
+                                ku.learn_vulnerability(self.g,
+                                                       vulnerability_identifier="npm-" + str(adv["id"]),
+                                                       database="npm",
+                                                       info_links=links,
+                                                       affects=[dep],
+                                                       title=title,
+                                                       description=description,
+                                                       weakness_identifier=weakness,
+                                                       severity=severity)
 
     def process(self, pd):
         logger.debug("Processing %s", repr(pd))
 
-        library_name = pd["name"] if "name" in pd else "unknown_package"
-        library_version = pd["version"] if "version" in pd else "unknown_version"
-        repo_url = pd["repository"] if "repository" in pd and len(pd["repository"]) > 0 else "unknown_repo"
-        upstream_version = pd["upstream_version"]
+        library_name = pd["name"] if "name" in pd else "_unknown_package"
+        library_version = pd["version"] if "version" in pd else "__unknown_version"
+        repo_url = pd["repository"] if "repository" in pd and len(pd["repository"]) > 0 else "_unknown"
+        upstream_version = pd["upstream_version"] or "_unknown"
         setup_path = pd["files"][0]
 
         logger.debug(f"Adding package info: {library_name} {library_version} {upstream_version} {repo_url}")
@@ -663,7 +719,7 @@ class NodeDependencyDetector(DependencyDetector):
                 try:
                     nv = self.npm_view_cache[npm_ref]
                 except KeyError:
-                    nv = npm_view(self.state["npm_bin"], f"{dep_name}@{dep_version}")
+                    nv = npm_view(self.state["npm_bin"], npm_ref)
                     self.npm_view_cache[npm_ref] = nv
                 try:
                     latest_version = nv["dist-tags"]["latest"]
@@ -683,7 +739,7 @@ class NodeDependencyDetector(DependencyDetector):
                                         language="nodejs",
                                         version_type="_generic",
                                         upstream_version=latest_version,
-                                        top_path=self.hg.path,
+                                        top_path=None,
                                         tree_path=self.hg.path,
                                         repository_url=repo_url,
                                         files=None,

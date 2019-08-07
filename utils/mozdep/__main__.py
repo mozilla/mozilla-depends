@@ -91,6 +91,10 @@ def main(argv=None):
     module_dir = split(__file__)[0]
     cleanup.init()
 
+    # Check if we were run by "python -m mozdep".
+    # Correct for argparse not handling it well.
+    if argv and len(argv) > 1 and "__main__" in argv[0]:
+        argv = argv[1:]
     args = parse_args(argv)
 
     if args.debug:
@@ -98,8 +102,6 @@ def main(argv=None):
 
     logger.debug("Command arguments: %s" % args)
 
-    # Create workdir (usually ~/.trellosa, used for caching etc.)
-    # Assumes that no previous code must write to it.
     if not args.tree.exists():
         logger.critical("You must specify a valid Mozilla Central tree")
         return 20

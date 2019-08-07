@@ -6,7 +6,7 @@ from logging import getLogger
 import pytest
 from typing import Iterable
 
-from mozdep.main import guess_repo_path
+from mozdep.__main__ import guess_repo_path
 import mozdep.component as mc
 from mozdep.knowledgegraph import KnowledgeGraph, Ns
 

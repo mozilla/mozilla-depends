@@ -66,6 +66,7 @@ class DetectCommand(BaseCommand):
                 "Language",
                 "Upstream Version",
                 "Upstream Repo",
+                "Vulnerabilities",
                 "Detector",
                 "Component",
                 "Files"
@@ -97,6 +98,11 @@ class DetectCommand(BaseCommand):
                         pass
                     try:
                         row["Detector"] = g.V(dep_v).Out(Ns().fx.mc.detector.name).All()[0]
+                    except IndexError:
+                        pass
+                    try:
+                        row["Vulnerabilities"] = " ".join(map(str, g.V(dep_v).In(Ns().vuln.affects)
+                                                                   .Out(Ns().vuln.info_link).All()))
                     except IndexError:
                         pass
 

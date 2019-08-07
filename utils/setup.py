@@ -78,7 +78,7 @@ setup(
     extras_require={"dev": DEV_REQUIRES},  # For `pip install -e .[dev]`
     entry_points={
         "console_scripts": [
-            "mozdep = mozdep.main:main"
+            "mozdep = mozdep.__main__:main"
         ]
     }
 )

@@ -59,6 +59,12 @@ def learn_dependency(g: KnowledgeGraph, *,
         if rel_top_path is not None:
             dv.add(Ns().fx.mc.dir.path, str(rel_top_path))
 
+        # TODO: Consumers should take the following two from lib node
+        if repository_url is not None:
+            dv.add(Ns().gh.repo.url, repository_url)
+        if upstream_version is not None:
+            dv.add(Ns().gh.repo.version, upstream_version)
+
     if files is not None:
         learn_file_set(g, files=files, tree_path=tree_path, belongs_to=dv)
 
@@ -105,7 +111,7 @@ def learn_vulnerability(g: KnowledgeGraph, *,
     if title is not None:
         vv.add(Ns().vuln.title, title)
     if description is not None:
-        vv.add(Ns().vuln.decription, description)
+        vv.add(Ns().vuln.description, description)
     if weakness_identifier is not None:
         vv.add(Ns().vuln.weakness_id, weakness_identifier)
     if severity is not None:
