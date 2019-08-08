@@ -13,7 +13,7 @@ import mozdep.knowledgegraph as mk
 logger = getLogger(__name__)
 
 
-def test_knowledgegraph_namespace():
+def test_knowledge_graph_namespace():
     """Test with Ns primitives"""
     g = mk.KnowledgeGraph()
 
@@ -29,7 +29,7 @@ def test_knowledgegraph_namespace():
         _ = g.add(mk.Ns().fx.mc.file.unknown, "foo/bam")
 
 
-def test_knowledgegraph_objects():
+def test_knowledge_graph_objects():
     g = mk.KnowledgeGraph()
     assert type(g.literal("foo")) is mk.Literal
     assert type(g.new_subject()) is mk.Subject
@@ -59,7 +59,7 @@ def test_knowledgegraph_objects():
     assert "foo label" in some_set
 
 
-def test_knowledgegraph_subjects():
+def test_knowledge_graph_subjects():
     g = mk.KnowledgeGraph()
 
     subject_a = mk.Subject(g)
@@ -86,7 +86,7 @@ def test_knowledgegraph_subjects():
     assert subject_a.mid != subject_c  # CAVE: this way around there's no equality
 
 
-def test_knowledgegraph_literals():
+def test_knowledge_graph_literals():
     g = mk.KnowledgeGraph()
 
     literal_a = mk.Literal(g, "literal a")
@@ -115,7 +115,7 @@ def test_knowledgegraph_literals():
     assert hash(literal_b) == hash("literal b")
 
 
-def test_knowledgegraph():
+def test_knowledge_graph():
     g = mk.KnowledgeGraph()
 
     name_one = g.literal("subject one")
@@ -221,7 +221,7 @@ def test_knowledgegraph():
 
 
 @pytest.mark.slow
-def test_knowledgegraph_random():
+def test_knowledge_graph_random():
 
     # Need reproducibility
     # (Doesn't really work though.)

@@ -8,7 +8,7 @@
 import argparse
 import coloredlogs
 import logging
-from os.path import expanduser, split
+from os.path import split
 import pkg_resources
 from pathlib import Path
 import sys
@@ -16,6 +16,7 @@ from time import gmtime
 
 from . import cleanup
 from . import command
+from .tree import guess_repo_path
 
 # Initialize coloredlogs
 logging.Formatter.converter = gmtime
@@ -25,29 +26,6 @@ coloredlogs.install(level="INFO")
 
 tmp_dir = None
 module_dir = None
-
-
-def guess_repo_path(override: Path or None = None) -> Path or None:
-    home_dir = Path(expanduser('~'))
-    # TODO: Poll for more guesses
-    guesses = [
-        home_dir / "mozilla-unified",
-        home_dir / "dev" / "mozilla-unified",
-        home_dir / "src" / "mozilla-unified",
-        Path("../mozilla-unified"),
-        Path("../../mozilla-unified"),
-        home_dir / "mozilla-central",
-        home_dir / "dev" / "mozilla-central",
-        home_dir / "src" / "mozilla-central",
-        Path("../mozilla-central"),
-        Path("../../mozilla-central"),
-    ]
-    if override is not None:
-        guesses = [override]
-    for guess in guesses:
-        if (guess / "mach").is_file():
-            return guess.resolve()
-    return None
 
 
 def parse_args(argv=None):
@@ -60,7 +38,6 @@ def parse_args(argv=None):
         argv = sys.argv[1:]
 
     pkg_version = pkg_resources.require("mozdep")[0].version
-    home = expanduser("~")
 
     # Set up the parent parser with shared arguments
     parser = argparse.ArgumentParser(prog="mozdep")
@@ -72,7 +49,7 @@ def parse_args(argv=None):
                         help="path to mozilla-central/unified tree",
                         type=Path,
                         action="store",
-                        default=Path("%s/src/mozilla-unified" % home))
+                        default=guess_repo_path())
 
     # Set up subparsers, one for each subcommand
     subparsers = parser.add_subparsers(help="Subcommand", dest="command")

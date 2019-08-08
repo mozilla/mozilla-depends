@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+from os.path import expanduser
 from pathlib import Path
 from re import compile
 from subprocess import run, PIPE, DEVNULL
@@ -26,7 +27,30 @@ def get_mozilla_component(path: Path, tree: Path) -> str or None:
 
 
 def is_test_path(p: str):
-    return TEST_RE.match(p)
+    return TEST_RE.match(p) is not None
+
+
+def guess_repo_path(override: Path or None = None) -> Path or None:
+    home_dir = Path(expanduser('~'))
+    # TODO: Poll for more guesses
+    guesses = [
+        home_dir / "mozilla-unified",
+        home_dir / "dev" / "mozilla-unified",
+        home_dir / "src" / "mozilla-unified",
+        Path("../mozilla-unified"),
+        Path("../../mozilla-unified"),
+        home_dir / "mozilla-central",
+        home_dir / "dev" / "mozilla-central",
+        home_dir / "src" / "mozilla-central",
+        Path("../mozilla-central"),
+        Path("../../mozilla-central"),
+    ]
+    if override is not None:
+        guesses = [override]
+    for guess in guesses:
+        if (guess / "mach").is_file():
+            return guess.resolve()
+    return None
 
 
 class HgRepo(object):
