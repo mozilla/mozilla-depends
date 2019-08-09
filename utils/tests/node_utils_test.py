@@ -5,7 +5,7 @@
 from logging import getLogger
 import pytest
 
-from mozdep.tree import guess_repo_path
+from mozdep.repo_utils import guess_repo_path, HgRepo
 import mozdep.node_utils as nu
 
 logger = getLogger(__name__)
@@ -60,3 +60,12 @@ def test_against_eslint_plugin_mozilla():
 
 def test_against_remote_qs():
     pass
+
+
+def test_against_primary_packages():
+    repo_dir = guess_repo_path()
+    if repo_dir is None:
+        pytest.skip("Primary Package test requires `guessable` mozilla-central repo path")
+    hg = HgRepo(repo_dir)
+    primary_packages = list(map(nu.NodePackage, hg.find("package.json")))
+    assert len(primary_packages) > 30

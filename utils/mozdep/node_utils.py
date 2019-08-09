@@ -29,11 +29,12 @@ class NodeError(Exception):
     pass
 
 
-class RemoveTmpdir(CleanUp):
+class RemoveNodeTmpdir(CleanUp):
     @staticmethod
     def at_exit():
         global tmp_dir
         if tmp_dir.exists():
+            logger.debug("Removing temporary directory at `%s`", tmp_dir)
             rmtree(tmp_dir)
 
 
@@ -242,24 +243,6 @@ class NodePackage(object):
 
     def is_private(self):
         return "private" in self.json and self.json["private"]
-
-    @property
-    def name(self):
-        if self.ref:
-            return "@".join(self.ref.split("@")[:-1])
-        if "name" in self.json:
-            return self.json["name"]
-        if self.dir:
-            return self.dir.name
-        return None
-
-    @property
-    def version(self):
-        if self.ref:
-            return self.ref.split("@")[-1]
-        if "version" in self.json:
-            return self.json["version"]
-        return None
 
     @property
     def name(self):

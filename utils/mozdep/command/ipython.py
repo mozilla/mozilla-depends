@@ -6,10 +6,14 @@
 
 from IPython import embed
 import logging
+import networkx as nx
 
 from .basecommand import BaseCommand
-from .. import knowledgegraph as kg
-import networkx as nx
+import mozdep.component as comp
+import mozdep.node_utils as nu
+import mozdep.knowledge_utils as ku
+import mozdep.knowledgegraph as kg
+import mozdep.repo_utils as ru
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +37,9 @@ class IpythonCommand(BaseCommand):
         pass
 
     def run(self) -> int:
-        repo_dir = self.args.tree.resolve()
+        if self.args.tree is not None:
+            repo_dir = self.args.tree.resolve()
+            hg = ru.HgRepo(repo_dir)
 
         g = kg.KnowledgeGraph()
 

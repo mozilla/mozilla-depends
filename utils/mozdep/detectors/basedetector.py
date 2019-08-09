@@ -8,7 +8,7 @@ from abc import abstractmethod, ABC, abstractproperty
 from pathlib import Path
 
 from ..knowledgegraph import KnowledgeGraph
-from ..tree import HgRepo
+from ..repo_utils import HgRepo
 
 
 class DependencyDetector(ABC):

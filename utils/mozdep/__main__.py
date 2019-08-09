@@ -16,7 +16,7 @@ from time import gmtime
 
 from . import cleanup
 from . import command
-from .tree import guess_repo_path
+from .repo_utils import guess_repo_path
 
 # Initialize coloredlogs
 logging.Formatter.converter = gmtime
