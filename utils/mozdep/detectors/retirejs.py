@@ -5,16 +5,61 @@
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import logging
-import os
 from json import loads, decoder
 from pathlib import Path
-from subprocess import run, check_output, check_call, DEVNULL, CalledProcessError
-from tempfile import mktemp
+from tempfile import NamedTemporaryFile
 
 from .basedetector import DependencyDetector
 from mozdep.knowledgegraph import Ns
+from mozdep.node_utils import NodeEnv, NodeError
 
 logger = logging.getLogger(__name__)
+
+
+class RetireScannerError(Exception):
+    pass
+
+
+class RetireScanner(object):
+
+    def __init__(self):
+        # FIXME: retirejs is broken
+        # See https://github.com/RetireJS/retire.js/issues/302
+        # - retirejs 2.0 (current) complains about missing yarn, and fails to produce an output report
+        # - retirejs 1.6 complains about missing yarn as well, but produces report on the rest
+        self.env = NodeEnv("retire_scanner_env")
+        self.env.install("yarn")
+        self.env.install("retire@1")
+
+    def run(self, path: Path):
+        with NamedTemporaryFile(prefix="retire_scanner_tmpfile_") as tmp_file:
+            retire_args = [
+                "--outputformat", "json",
+                "--outputpath", tmp_file.name,
+                "--path", str(path),
+                "--verbose"
+            ]
+            if (path / ".hg").is_dir():
+                retire_args += ["--ignore", str(path / ".hg")]
+
+            try:
+                p = self.env.run("retire", retire_args)
+            except NodeError as e:
+                raise RetireScannerError from e
+            if p.returncode not in [0, 13]:
+                logger.error("Retire.js call failed, probably due to network failure")
+                logger.error("Failing stderr is `%s`", p.stderr.decode("utf-8"))
+                raise RetireScannerError("Retire.js failed to run")
+
+            with open(tmp_file.name, "rb") as f:
+                cmd_output = f.read().decode("utf-8")
+            try:
+                result = loads(cmd_output)
+            except decoder.JSONDecodeError:
+                logger.error("Retire.js call failed, probably due to network failure: %s", repr(cmd_output))
+                raise RetireScannerError("Retire.js failed to run, likely due to network error")
+
+        return result
 
 
 class RetireDependencyDetector(DependencyDetector):
@@ -28,62 +73,18 @@ class RetireDependencyDetector(DependencyDetector):
         return 20
 
     def setup(self) -> bool:
-        if "retire_bin" in self.args:
-            retire_bin = self.args["retire_bin"]
-        else:
-            try:
-                cmd = ["npm", "bin"]
-                node_bin_path = check_output(cmd).decode("utf-8").split()[0]
-            except FileNotFoundError:
-                logger.critical("Node Package Manager not found")
-                return False
-            retire_bin = os.path.join(node_bin_path, "retire")
-            logger.debug("Checking `%s`" % retire_bin)
-            if not os.path.isfile(retire_bin):
-                if os.path.isfile("%s.exe" % retire_bin):
-                    retire_bin = "%s.exe" % retire_bin
-                    logger.debug("Checking `%s`" % retire_bin)
-                else:
-                    logger.critical("Unable to find retire.js binary")
-                    return False
-            self.args["retire_bin"] = retire_bin
-        logger.debug("Using retire.js binary at `%s`" % retire_bin)
-        cmd = [retire_bin, "--version"]
         try:
-            check_call(cmd, stdout=DEVNULL, stderr=DEVNULL)
-        except CalledProcessError as e:
-            logger.critical("Error running retire.js binary: `%s`" % str(e))
+            self.state = {
+                "retire_scanner": RetireScanner()
+            }
+        except RetireScannerError as e:
+            logger.error("Detector failed to init retire.js scanner: %s", str(e))
             return False
         return True
 
     def run(self):
-        tmp_out = mktemp(prefix="mozdep_retire_")
-        cmd = [
-            self.args["retire_bin"],
-            "--outputformat", "json",
-            "--outputpath", str(tmp_out),
-            "--path", str(self.hg.path),
-            "--ignore", str(self.hg.path / ".hg"),
-            "--verbose"
-        ]
-        logger.debug("Running shell command `%s`" % " ".join(cmd))
         logger.info("Running retirejs scanner (takes a while)")
-        r = run(cmd, check=False, capture_output=True)
-        if r.returncode not in [0, 13]:
-            logger.error("retirejs call failed, probably due to network failure")
-            logger.error("Failing stderr is `%s`" % r.stderr.decode("utf-8"))
-            raise Exception("Retire.js failed to run")
-        with open(tmp_out, "rb") as f:
-            cmd_output = f.read()
-        os.unlink(tmp_out)
-        logger.debug("Shell command output: `%s`" % cmd_output)
-        try:
-            result = loads(cmd_output.decode("utf-8"))
-        except decoder.JSONDecodeError:
-            logger.error("retirejs call failed, probably due to network failure")
-            logger.error("Failing output is `%s`" % cmd_output)
-            raise Exception("Retire.js failed to run, likely due to network error")
-
+        result = self.state["retire_scanner"].run(self.hg.path)
         for f in result:
             if "results" not in f or len(f["results"]) == 0:
                 continue

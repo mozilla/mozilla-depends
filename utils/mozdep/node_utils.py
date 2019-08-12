@@ -393,11 +393,9 @@ class NodePackage(object):
 
 class NodeEnv(object):
     def __init__(self, name: str = "default"):
-        global tmp_dir
-        self.npm_bin = find_executable("npm.exe") or find_executable("npm")
-        if self.npm_bin is None:
+        global tmp_dir, npm_bin
+        if npm_bin is None:
             raise NodeError("Unable to find npm binary")
-        self.npm_bin = Path(self.npm_bin).absolute()
         self.name = name
         self.path = tmp_dir / self.name
         # If node_modules does not exist, npm will start looking for one up the tree.
@@ -419,10 +417,15 @@ class NodeEnv(object):
                 }, f, indent=4)
 
     def npm(self, args: List[str] = None, *, cwd=None):
+        global npm_bin
         args = args or []
-        npm_cmd = [str(self.npm_bin), "--prefix", str(self.path), "--json"] + args
+        npm_cmd = [str(npm_bin), "--prefix", str(self.path)] + args
         logger.debug("Running `%s`", " ".join(npm_cmd))
-        p = run(npm_cmd, stdout=PIPE, stderr=PIPE, cwd=cwd or self.path)
+        return run(npm_cmd, stdout=PIPE, stderr=PIPE, cwd=cwd or self.path, check=False)
+
+    def npm_json(self, args: List[str] = None, *, cwd=None):
+        p = self.npm(["--json"] + args, cwd=cwd)
+
         # Some npm subcommands (ie. pack) litter into their json output
         out = ""
         for line in p.stdout.decode("utf-8").split("\n"):
@@ -432,7 +435,7 @@ class NodeEnv(object):
         return loads(out)
 
     def list(self):
-        return self.npm(["list"])
+        return self.npm_json(["list"])
 
     def run(self, script: str, args: List[str] = None):
         args = args or []
@@ -446,20 +449,29 @@ class NodeEnv(object):
                 if not (package / "package.json").exists():
                     raise NodeError(f"No `package.json` in `{str(package)}`")
 
-        # npm refuses to copy local package files, always creates symlink.
-        # Only workaround seems o be to create tgz package first, then install that.
-        with TemporaryDirectory(prefix="npm_install_tgz_") as tmp:
-            pack_result = self.npm(["pack", str(package)], cwd=tmp)
-            if "error" in pack_result:
-                raise NodeError(f"npm pack failed: {repr(pack_result)}")
-            if len(pack_result) != 1:
-                raise NodeError(f"npm failed should deliver a single result: "
-                                f"{repr(pack_result)}")
-            install_result = self.npm(["install", "-P", "-E", "--ignore-scripts",
-                                       pack_result[0]["filename"]], cwd=tmp)
+            # npm refuses to copy local package files, always creates symlink.
+            # Only workaround seems o be to create tgz package first, then install that.
+            with TemporaryDirectory(prefix="npm_install_tgz_") as tmp:
+                pack_result = self.npm_json(["pack", str(package)], cwd=tmp)
+                if "error" in pack_result:
+                    raise NodeError(f"npm pack failed: {repr(pack_result)}")
+                if len(pack_result) != 1:
+                    raise NodeError(f"npm failed should deliver a single result: "
+                                    f"{repr(pack_result)}")
+                install_result = self.npm_json(["install", "-P", "-E", "--ignore-scripts",
+                                               pack_result[0]["filename"]])
+                if "error" in install_result:
+                    raise NodeError(f"npm failed: {repr(install_result)}")
+                return install_result
+
+        elif type(package) is str:
+            install_result = self.npm_json(["install", "-P", "-E", "--ignore-scripts", package])
             if "error" in install_result:
-                raise NodeError(f"npm failed: {repr(install_result)}")
+                raise NodeError(f"npm install failed: {repr(install_result)}")
             return install_result
 
+        else:
+            raise NodeError("Invalid package reference: %s" % repr(package))
+
     def audit(self):
-        return self.npm(["audit"])
+        return self.npm_json(["audit"])

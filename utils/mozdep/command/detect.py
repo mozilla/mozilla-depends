@@ -47,7 +47,7 @@ class DetectCommand(BaseCommand):
                             action="store_true")
 
     def run(self) -> int:
-        repo_dir = self.args.tree.resolve()
+        repo_dir = self.args.repo.resolve()
 
         g = KnowledgeGraph()
 

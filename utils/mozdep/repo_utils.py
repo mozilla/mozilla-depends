@@ -9,9 +9,9 @@ from os.path import expanduser
 from pathlib import Path
 from re import compile
 from shutil import rmtree
-from subprocess import run, PIPE, DEVNULL
+from subprocess import run, PIPE, DEVNULL, STDOUT
 from tempfile import mkdtemp
-from typing import Iterator
+from typing import Iterator, List
 import logging
 
 from mozdep.cleanup import CleanUp
@@ -38,13 +38,18 @@ class RemoveRepoTmpdir(CleanUp):
             rmtree(tmp_dir)
 
 
-def clone_repo(src: Path or str = "https://hg.mozilla.org/mozilla-unified", dst: Path = tmp_dir) -> Path:
+def clone_repo(dst: Path = tmp_dir, src: Path or str = "https://hg.mozilla.org/mozilla-unified", quiet=True) -> Path:
     global hg_bin
     if hg_bin is None:
         raise RepoError("Unable to find `hg` binary in $PATH")
-    cmd = [str(hg_bin), "clone", "--quiet", "--uncompressed", str(src), str(tmp_dir)]
-    logger.debug("Running command `%s`", " ".join(cmd))
-    result = run(cmd, check=False, stdout=DEVNULL, stderr=PIPE)
+    if quiet:
+        cmd = [str(hg_bin), "clone", "--quiet", "--uncompressed", str(src), str(dst)]
+        logger.debug("Running command `%s`", " ".join(cmd))
+        result = run(cmd, check=False, stdout=DEVNULL, stderr=PIPE)
+    else:
+        cmd = [str(hg_bin), "clone", "--noninteractive", "--color", "always", "--time", "--uncompressed", str(src), str(dst)]
+        logger.debug("Running command `%s`", " ".join(cmd))
+        result = run(cmd, check=False)
     if result.returncode != 0:
         logger.error("Command `%s` failed: %s", " ".join(cmd), result.stderr.decode("utf-8"))
         raise RepoError(f"Cloning repo from `{str(src)}` to `{str(dst)}` failed")
@@ -104,8 +109,9 @@ class HgRepo(object):
     def __init__(self, path: Path):
         self.path = path.resolve()
         self.__source_stamp = None
-        if not (path / ".hg").is_dir():
-            raise RepoError(f"Not a mercurial repository: `{str(path)}`")
+
+    def is_repo(self):
+        return (self.path / ".hg").is_dir()
 
     def update(self):
         logger.info("Updating mercurial repo in `%s`", str(self.path))
@@ -119,6 +125,37 @@ class HgRepo(object):
                 yield path.relative_to(self.path)
             else:
                 yield path
+
+    def run_hg(self, args: List[str], stdout=PIPE, stderr=PIPE):
+        global hg_bin
+        if hg_bin is None:
+            raise RepoError("Unable to find `hg` binary in $PATH")
+        cmd = [str(hg_bin)] + args
+        logger.debug("Running command `%s` in `%s`", " ".join(cmd), str(self.path))
+        cmd_result = run(cmd, cwd=str(self.path), check=False, stdout=stdout, stderr=stderr)
+        return cmd_result
+
+    def is_clean(self):
+        status_result = self.run_hg(["status"])
+        if status_result.returncode != 0:
+            logger.error(f"Failed to run `hg status` on {self.path}: %s",
+                         repr(status_result.stderr.decode("utf-8")))
+            raise RepoError("Error running `hg status`")
+        return len(status_result.stdout) == 0
+
+    def cleanup(self, *, purge=True, revert=True):
+        if purge:
+            purge_result = self.run_hg(["purge"], stdout=DEVNULL, stderr=PIPE)
+            if purge_result.returncode != 0:
+                logger.error(f"Unable to purge dirty files from {self.path}: %s",
+                             repr(purge_result.stderr.decode("utf-8")))
+                logger.warning(f"Do you have the `purge` mercurial extension enabled?")
+        if revert:
+            revert_result = self.run_hg(["revert", "--all"], stdout=DEVNULL, stderr=PIPE)
+            if revert_result.returncode != 0:
+                logger.error(f"Failed to run `hg revert` on {self.path}: %s",
+                             repr(revert_result.stderr.decode("utf-8")))
+                raise RepoError("Error running `hg revert`")
 
     @property
     def source_stamp(self) -> str:

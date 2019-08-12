@@ -37,8 +37,8 @@ class IpythonCommand(BaseCommand):
         pass
 
     def run(self) -> int:
-        if self.args.tree is not None:
-            repo_dir = self.args.tree.resolve()
+        if self.args.repo is not None:
+            repo_dir = self.args.repo.resolve()
             hg = ru.HgRepo(repo_dir)
 
         g = kg.KnowledgeGraph()

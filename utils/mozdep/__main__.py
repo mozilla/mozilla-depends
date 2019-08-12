@@ -16,7 +16,7 @@ from time import gmtime
 
 from . import cleanup
 from . import command
-from .repo_utils import guess_repo_path
+from .repo_utils import guess_repo_path, clone_repo, HgRepo
 
 # Initialize coloredlogs
 logging.Formatter.converter = gmtime
@@ -45,11 +45,20 @@ def parse_args(argv=None):
     parser.add_argument("-d", "--debug",
                         help="enable debug",
                         action="store_true")
-    parser.add_argument("-t", "--tree",
-                        help="path to mozilla-central/unified tree",
+    parser.add_argument("-r", "--repo",
+                        help="path to mozilla-central/unified mercurial repo",
                         type=Path,
-                        action="store",
-                        default=guess_repo_path())
+                        action="store")
+    parser.add_argument("-c", "--clone",
+                        help="clone mozilla-unified repo if required",
+                        action="store_true")
+    parser.add_argument("--cleanup",
+                        help="purge and revert the mercurial repo if required",
+                        action="store_true")
+    parser.add_argument("-u", "--update",
+                        help="pull update from upstream mercurial repo",
+                        action="store_true")
+
 
     # Set up subparsers, one for each subcommand
     subparsers = parser.add_subparsers(help="Subcommand", dest="command")
@@ -79,9 +88,48 @@ def main(argv=None):
 
     logger.debug("Command arguments: %s" % args)
 
-    if not args.tree.exists():
-        logger.critical("You must specify a valid Mozilla Central tree")
-        return 20
+    if args.repo is None:
+        logger.info("No repo path given, looking for likely candidate...")
+        repo_path = guess_repo_path()
+        if repo_path is None:
+            logger.critical("Unable to detect mozilla-unified repo. Please specify --repo path")
+            return 20
+    else:
+        repo_path = args.repo.resolve()
+        if not repo_path.is_dir():
+            if args.clone:
+                logger.info("Cloning mozilla-unified repo to `%s`. This will take a long time...", repo_path)
+                try:
+                    clone_repo(repo_path, quiet=False)
+                except KeyboardInterrupt:
+                    logger.critical("\nUser interrupt. Quitting...")
+                    return 10
+            else:
+                logger.critical("No mozilla-unified mercurial repo at `%s`. Would you like to --clone one there?",
+                                repo_path)
+                return 21
+
+    hg = HgRepo(repo_path)
+    if not hg.is_repo():
+        logger.critical("Not a mercurial repo at `%s`", hg.path)
+        return 22
+
+    logger.info("Using mercurial repo at `%s`", str(hg.path))
+    if not hg.is_clean():
+        if args.cleanup:
+            logger.warning("Purging and reverting dirty repo as requested")
+            hg.cleanup()
+        else:
+            logger.critical("Mercurial repo is dirty. Want a --cleanup?")
+            return 23
+    else:
+        logger.info("Repo is clean")
+
+    if args.update:
+        logger.info("Updating repo as requested")
+        hg.update()
+
+    args.repo = hg.path
 
     # Execute the specified command
     try:
@@ -89,7 +137,11 @@ def main(argv=None):
 
     except KeyboardInterrupt:
         logger.critical("\nUser interrupt. Quitting...")
-        return 10
+        result = 10
+
+    if not hg.is_clean():
+        logger.info("Reverting changes to repo")
+        hg.cleanup()
 
     return result
 

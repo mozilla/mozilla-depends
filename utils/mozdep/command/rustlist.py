@@ -22,7 +22,7 @@ class RustListCommand(BaseCommand):
     def run(self) -> int:
         raise NotImplemented
 
-        # repo_dir = self.args.tree.resolve()
+        # repo_dir = self.args.repo.resolve()
         #
         # deps = []
 
