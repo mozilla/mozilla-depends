@@ -15,7 +15,7 @@ from typing import Iterator, Tuple, Iterable, List
 from subprocess import run, PIPE, DEVNULL, CalledProcessError
 
 from .basedetector import DependencyDetector
-from ..knowledgegraph import Ns
+import mozdep.knowledge_utils as ku
 
 # tempfile.mkdtemp(suffix=None, prefix=None, dir=None
 
@@ -297,35 +297,61 @@ class PythonDependencyDetector(DependencyDetector):
         # >> > content = open('setup.py').read()
         # >> > exec(content)
 
-        rel_top_path = str(setup_path.parent.relative_to(self.hg.path))
+        # rel_top_path = str(setup_path.parent.relative_to(self.hg.path))
 
         logger.info(f"Adding `{str(setup_path)}`")
 
-        # Get existing library node or create one
-        try:
-            lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
-        except IndexError:
-            lv = self.g.new_subject()
-            lv.add(Ns().fx.mc.lib.name, library_name)
-            lv.add(Ns().language.name, "cpp")
+        # # Get existing library node or create one
+        # try:
+        #     lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
+        # except IndexError:
+        #     lv = self.g.new_subject()
+        #     lv.add(Ns().fx.mc.lib.name, library_name)
+        #     lv.add(Ns().language.name, "cpp")
+        #
+        # dv = self.g.new_subject()
+        # dv.add(Ns().fx.mc.lib.dep.name, library_name)
+        # dv.add(Ns().fx.mc.lib, lv)
+        # dv.add(Ns().language.name, "python")
+        # dv.add(Ns().fx.mc.detector.name, self.name())
+        # dv.add(Ns().version.spec, library_version)
+        # dv.add(Ns().version.type, "generic")
+        # dv.add(Ns().fx.mc.dir.path, rel_top_path)
+        #
+        # if repo_url is not None:
+        #     dv.add(Ns().gh.repo.url, repo_url)
+        #     dv.add(Ns().gh.repo.version, upstream_version)
+        #
+        # # Create file references
+        # for f in setup_path.parent.rglob("*"):
+        #     logger.debug(f"Processing file {f}")
+        #     rel_path = str(f.relative_to(self.hg.path))
+        #     fv = self.g.new_subject()
+        #     fv.add(Ns().fx.mc.file.path, rel_path)
+        #     fv.add(Ns().fx.mc.file.part_of, dv)
 
-        dv = self.g.new_subject()
-        dv.add(Ns().fx.mc.lib.dep.name, library_name)
-        dv.add(Ns().fx.mc.lib, lv)
-        dv.add(Ns().language.name, "python")
-        dv.add(Ns().fx.mc.detector.name, self.name())
-        dv.add(Ns().version.spec, library_version)
-        dv.add(Ns().version.type, "generic")
-        dv.add(Ns().fx.mc.dir.path, rel_top_path)
+        dv = ku.learn_dependency(self.g,
+                                 name=library_name,
+                                 version=library_version,
+                                 detector_name=self.name(),
+                                 language="python",
+                                 version_type="_generic",
+                                 upstream_version=upstream_version,
+                                 top_path=setup_path.parent,
+                                 tree_path=self.hg.path,
+                                 repository_url=repo_url,
+                                 files=[setup_path],
+                                 vulnerabilities=None)
 
-        if repo_url is not None:
-            dv.add(Ns().gh.repo.url, repo_url)
-            dv.add(Ns().gh.repo.version, upstream_version)
-
-        # Create file references
-        for f in setup_path.parent.rglob("*"):
-            logger.debug(f"Processing file {f}")
-            rel_path = str(f.relative_to(self.hg.path))
-            fv = self.g.new_subject()
-            fv.add(Ns().fx.mc.file.path, rel_path)
-            fv.add(Ns().fx.mc.file.part_of, dv)
+        if "vulnerabilities" in arg:
+            for vuln in arg["vulnerabilities"]:
+                logger.critical(repr(vuln))
+                ku.learn_vulnerability(self.g,
+                                       vulnerability_identifier=vuln["id"],
+                                       database="pyup.io",
+                                       info_links=[],
+                                       affects=[dv],
+                                       title=vuln["cve"],
+                                       description=vuln["advisory"],
+                                       weakness_identifier=None,
+                                       severity=None)

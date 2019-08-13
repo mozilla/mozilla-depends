@@ -11,6 +11,7 @@ from tempfile import NamedTemporaryFile
 
 from .basedetector import DependencyDetector
 from mozdep.knowledgegraph import Ns
+import mozdep.knowledge_utils as ku
 from mozdep.node_utils import NodeEnv, NodeError
 
 logger = logging.getLogger(__name__)
@@ -28,8 +29,8 @@ class RetireScanner(object):
         # - retirejs 2.0 (current) complains about missing yarn, and fails to produce an output report
         # - retirejs 1.6 complains about missing yarn as well, but produces report on the rest
         self.env = NodeEnv("retire_scanner_env")
-        self.env.install("yarn")
         self.env.install("retire@1")
+        # self.env.install("yarn")
 
     def run(self, path: Path):
         with NamedTemporaryFile(prefix="retire_scanner_tmpfile_") as tmp_file:
@@ -91,41 +92,30 @@ class RetireDependencyDetector(DependencyDetector):
             self.process(f)
 
     def process(self, data: dict):
-
         fp = Path(data["file"]).resolve()
-        rel_top_path = str(fp.parent.relative_to(self.hg.path))
 
         logger.info(f"RetireDependency adding `{fp.relative_to(self.hg.path)}`")
 
         logger.debug(f"Processing file {fp}")
-        rel_path = str(fp.relative_to(self.hg.path))
-        fv = self.g.new_subject()
-        fv.add(Ns().fx.mc.file.path, rel_path)
 
         for r in data["results"]:
             library_name = r["component"]
             library_version = r["version"]
 
-            # Get existing library node or create one
-            try:
-                lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "js").All()[0]
-            except IndexError:
-                lv = self.g.new_subject()
-                lv.add(Ns().fx.mc.lib.name, library_name)
-                lv.add(Ns().language.name, "js")
+            dv = ku.learn_dependency(self.g,
+                                     name=library_name,
+                                     version=library_version,
+                                     detector_name=self.name(),
+                                     language="js",
+                                     version_type="_generic",
+                                     upstream_version=None,  # FIXME: extract upstream version
+                                     top_path=fp.parent,
+                                     tree_path=self.hg.path,
+                                     repository_url=None,  # FIXME: extract upstream repo
+                                     files=[fp],
+                                     vulnerabilities=None)
 
-            dv = self.g.new_subject()
-            dv.add(Ns().fx.mc.lib.dep.name, library_name)
-            dv.add(Ns().fx.mc.lib, lv)
-            dv.add(Ns().language.name, "js")
-            dv.add(Ns().fx.mc.detector.name, self.name())
-            dv.add(Ns().version.spec, library_version)
-            dv.add(Ns().version.type, "generic")
-            dv.add(Ns().fx.mc.dir.path, rel_top_path)
-
-            fv.add(Ns().fx.mc.file.part_of, dv)
-
-# """
+            # """
 #  {'file': '/home/cr/src/mozilla-unified/mobile/android/tests/browser/chrome/tp5/
 #  twitter.com/ajax.googleapis.com/ajax/libs/jquery/1.3.0/jquery.min.js',
 #   'results': [{'component': 'jquery',
@@ -161,17 +151,15 @@ class RetireDependencyDetector(DependencyDetector):
                     ident = vuln["identifiers"]["CVE"][0]
                 else:
                     logger.error(f"Unexpected vulnerability identifier in `{repr(vuln['identifiers'])}`")
-                    continue
-                try:
-                    vv = self.g.V(ident).In(Ns().vuln.id).All()[0]
-                    logger.debug(f"Updating existing vulnerability node for {ident}")
-                except IndexError:
-                    logger.debug(f"Creating new vulnerability node for {ident}")
-                    vv = self.g.new_subject()
-                    vv.add(Ns().vuln.id, ident)
-                if "summary" in vuln["identifiers"]:
-                    vv.add(Ns().vuln.summary, vuln["identifiers"]["summary"])
-                vv.add(Ns().vuln.severity, vuln["severity"])
-                vv.add(Ns().vuln.info_link, ";".join(vuln["info"]))
-                vv.add(Ns().vuln.affects, dv)
-                # TODO: extract version_match info
+                    ident = "retirejs-" + str(hash(fp))
+                description = vuln["summary"] if "summary" in vuln else None
+                severity = vuln["severity"] if "severity" in vuln else None
+                ku.learn_vulnerability(self.g,
+                                       vulnerability_identifier=ident,
+                                       database="retire.js",
+                                       info_links=vuln["info"],
+                                       affects=[dv],
+                                       title=None,
+                                       description=description,
+                                       weakness_identifier=None,
+                                       severity=severity)

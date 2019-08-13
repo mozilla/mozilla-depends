@@ -401,20 +401,23 @@ class NodeEnv(object):
         # If node_modules does not exist, npm will start looking for one up the tree.
         (self.path / "node_modules").mkdir(mode=0o755, parents=True, exist_ok=True)
         if not (self.path / "package.json").exists():
-            with (self.path / "package.json").open("w") as f:
-                dump({
-                    "name": self.name,
-                    "version": "0.0.0",
-                    "description": "dummy package",
-                    "dependencies": {},
-                    "devDependencies": {},
-                    "license": "MPL-2.0",
-                    "private": True,
-                    "scripts": {
-                        "retire": "retire",
-                        "test": """echo "Error: no test specified" && exit 1"""
-                    }
-                }, f, indent=4)
+            # with (self.path / "package.json").open("w") as f:
+            #     dump({
+            #         "name": self.name,
+            #         "version": "0.0.0",
+            #         "description": "dummy package",
+            #         "dependencies": {},
+            #         "devDependencies": {},
+            #         "license": "MPL-2.0",
+            #         "private": True,
+            #         "scripts": {
+            #             "retire": "retire",
+            #             "test": """echo "Error: no test specified" && exit 1"""
+            #         }
+            #     }, f, indent=4)
+            p = self.npm(["init", "-y"])
+            if p.returncode != 0:
+                raise NodeError("Failed to initialize node environment")
 
     def npm(self, args: List[str] = None, *, cwd=None):
         global npm_bin
@@ -437,9 +440,11 @@ class NodeEnv(object):
     def list(self):
         return self.npm_json(["list"])
 
-    def run(self, script: str, args: List[str] = None):
+    def run(self, script: str, args: List[str] = None, *, cwd: Path or None = None):
         args = args or []
-        return self.npm(["run", script, "--"] + args)
+        cmd = [str(self.path / "node_modules" / ".bin" / script)] + args
+        logger.debug("Running `%s`", " ".join(cmd))
+        return run(cmd, stdout=PIPE, stderr=PIPE, cwd=cwd or self.path, check=False)
 
     def install(self, package: str or Path):
         if issubclass(type(package), Path):
@@ -451,6 +456,7 @@ class NodeEnv(object):
 
             # npm refuses to copy local package files, always creates symlink.
             # Only workaround seems o be to create tgz package first, then install that.
+            # However, of course it fails to `pack` several of the in-tree packages.
             with TemporaryDirectory(prefix="npm_install_tgz_") as tmp:
                 pack_result = self.npm_json(["pack", str(package)], cwd=tmp)
                 if "error" in pack_result:
