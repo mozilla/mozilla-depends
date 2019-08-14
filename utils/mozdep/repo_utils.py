@@ -9,7 +9,7 @@ from os.path import expanduser
 from pathlib import Path
 from re import compile
 from shutil import rmtree
-from subprocess import run, PIPE, DEVNULL, STDOUT
+from subprocess import run, PIPE, DEVNULL
 from tempfile import mkdtemp
 from typing import Iterator, List
 import logging
@@ -47,7 +47,8 @@ def clone_repo(dst: Path = tmp_dir, src: Path or str = "https://hg.mozilla.org/m
         logger.debug("Running command `%s`", " ".join(cmd))
         result = run(cmd, check=False, stdout=DEVNULL, stderr=PIPE)
     else:
-        cmd = [str(hg_bin), "clone", "--noninteractive", "--color", "always", "--time", "--uncompressed", str(src), str(dst)]
+        cmd = [str(hg_bin), "clone", "--noninteractive", "--color", "always", "--time", "--uncompressed",
+               str(src), str(dst)]
         logger.debug("Running command `%s`", " ".join(cmd))
         result = run(cmd, check=False)
     if result.returncode != 0:

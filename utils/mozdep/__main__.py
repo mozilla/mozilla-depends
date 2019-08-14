@@ -59,7 +59,6 @@ def parse_args(argv=None):
                         help="pull update from upstream mercurial repo",
                         action="store_true")
 
-
     # Set up subparsers, one for each subcommand
     subparsers = parser.add_subparsers(help="Subcommand", dest="command")
     for command_name in command.all_commands:

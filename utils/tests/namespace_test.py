@@ -83,5 +83,8 @@ def test_namespace_indexing():
     for index in range(Ns.len()):
         ns = Ns.by_index(index)
         assert Ns.index_of(ns) == index
+        if complete_namespace[index] != ns:
+            assert True
+            pass
         assert complete_namespace[index] == ns
         assert type(complete_namespace[index]) is Ns

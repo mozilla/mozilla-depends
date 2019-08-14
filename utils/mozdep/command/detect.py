@@ -102,7 +102,7 @@ class DetectCommand(BaseCommand):
                         pass
                     try:
                         row["Vulnerabilities"] = " ".join(map(str, g.V(dep_v).In(Ns().vuln.affects)
-                                                                   .Out(Ns().vuln.info_link).All()))
+                                                              .Out(Ns().vuln.info_link).All()))
                     except IndexError:
                         pass
 

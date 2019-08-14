@@ -82,18 +82,18 @@ class Ns(str):
                 "type": None
             },
             "vuln": {
+                "affects": None,
+                "class": None,
+                "database": None,
+                "description": None,
+                "detector_name": None,
                 "id": None,
+                "info_link": None,
+                "severity": None,
+                "summary": None,
+                "title": None,
                 "version_match": None,
                 "weakness_id": None,
-                "title": None,
-                "summary": None,
-                "description": None,
-                "class": None,
-                "severity": None,
-                "info_link": None,
-                "affects": None,
-                "database": None,
-                "detector_name": None,
             },
         },
     }
@@ -124,7 +124,12 @@ class Ns(str):
         while len(queue) > 0:
             ns, sub_dict = queue.popleft()
             for key, sub_sub_dict in sub_dict.items():
-                next_ns = getattr(ns, key)
+                # The idea now is to get the attribute from the sub dict corresponding to `key`.
+                # Normally, one would rely on getattr to do its thing, but whenever `key` also
+                # specifies a method in Ns or its parent str (i.e. str.title), that method is
+                # returned instead of the value in the dict. So you can't rely on getattr for
+                # this job, as in: next_ns = getattr(ns, key)
+                next_ns = ns.__getattr__(key)
                 yield next_ns
                 if sub_sub_dict is not None:
                     queue.append((getattr(ns, key), sub_sub_dict))

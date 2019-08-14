@@ -7,14 +7,14 @@ import pytest
 from subprocess import run, PIPE
 
 from mozdep.__main__ import guess_repo_path
-import mozdep.detectors.python as pydet
+import mozdep.python_utils as pu
 
 logger = getLogger(__name__)
 
 
 @pytest.mark.slow
 def test_venv_creation(tmp_path):
-    venv_path = pydet.make_venv(tmp_path)
+    venv_path = pu.make_venv(tmp_path)
 
     python_exe = venv_path / "bin" / "python"
     pip_exe = venv_path / "bin" / "pip"
@@ -22,8 +22,8 @@ def test_venv_creation(tmp_path):
     assert venv_path.is_dir() and tmp_path in venv_path.parents, "Venv is subdirectory of temp dir"
     assert (venv_path / "bin"). is_dir()
 
-    assert (python_exe).is_file(), "Venv contains python binary"
-    assert (pip_exe).is_file(), "Venv contains pip binary"
+    assert python_exe.is_file(), "Venv contains python binary"
+    assert pip_exe.is_file(), "Venv contains pip binary"
 
     p = run([python_exe, "--version"], check=False, stdout=PIPE, stderr=PIPE)
     assert p.returncode == 0, "Python runs without error"
@@ -36,7 +36,7 @@ def test_venv_creation(tmp_path):
 
 @pytest.fixture(name="venv")
 def venv_fixture(tmp_path):
-    return pydet.make_venv(tmp_path)
+    return pu.make_venv(tmp_path)
 
 
 @pytest.mark.slow
@@ -44,9 +44,9 @@ def test_pip_freeze(venv):
     repo = guess_repo_path()
     good_pkg = repo / "third_party" / "python" / "slugid"
     weird_pkg = repo / "third_party" / "python" / "gyp"
-    pydet.run_pip(venv, "install", str(good_pkg))
-    pydet.run_pip(venv, "install", str(weird_pkg))
-    freezed_zipped = list(pydet.check_pip_freeze(venv))
+    pu.run_pip(venv, "install", str(good_pkg))
+    pu.run_pip(venv, "install", str(weird_pkg))
+    freezed_zipped = list(pu.check_pip_freeze(venv))
     freezed_unzipped = list(zip(*freezed_zipped))
     assert "slugid" in freezed_unzipped[0]
     assert "gyp" in freezed_unzipped[0]
@@ -56,8 +56,8 @@ def test_pip_freeze(venv):
 def test_pip_show(venv):
     repo = guess_repo_path()
     good_pkg = repo / "third_party" / "python" / "slugid"
-    pydet.run_pip(venv, "install", str(good_pkg))
-    show_out = pydet.check_pip_show(venv)
+    pu.run_pip(venv, "install", str(good_pkg))
+    show_out = pu.check_pip_show(venv)
     assert "slugid" in show_out
     assert show_out["slugid"]["Author"] == "Pete Moore"
     assert show_out["slugid"]["License"] == "MPL 2.0"
@@ -65,8 +65,8 @@ def test_pip_show(venv):
 
 @pytest.mark.slow
 def test_pip_check(venv):
-    pydet.run_pip(venv, "install", "pip-check")
-    before = set(pydet.pip_check_result(venv))
+    pu.run_pip(venv, "install", "pip-check")
+    before = set(pu.pip_check_result(venv))
     packages = set()
     for (pkg, inst, avail, repo) in before:
         assert type(pkg) is str and pkg not in packages
@@ -80,8 +80,8 @@ def test_pip_check(venv):
 
     # slugid should install and update like any other PyPI package
     good_pkg = repo / "third_party" / "python" / "slugid"
-    pydet.run_pip(venv, "install", str(good_pkg))
-    after = set(pydet.pip_check_result(venv))
+    pu.run_pip(venv, "install", str(good_pkg))
+    after = set(pu.pip_check_result(venv))
     new = after - before
     assert after > before
     assert len(new) == 1
@@ -91,6 +91,6 @@ def test_pip_check(venv):
 
     # Gyp doesn't show in pip-check due to lack of PyPI repo
     weird_pkg = repo / "third_party" / "python" / "gyp"
-    pydet.run_pip(venv, "install", str(weird_pkg))
-    with_weird = set(pydet.pip_check_result(venv))
+    pu.run_pip(venv, "install", str(weird_pkg))
+    with_weird = set(pu.pip_check_result(venv))
     assert with_weird == after
