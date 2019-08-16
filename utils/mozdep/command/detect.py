@@ -63,10 +63,11 @@ class DetectCommand(BaseCommand):
             field_names = [
                 "Name",
                 "Version",
-                "Language",
                 "Upstream Version",
                 "Upstream Repo",
                 "Vulnerabilities",
+                "Ratings",
+                "Language",
                 "Detector",
                 "Component",
                 "Files"
@@ -103,6 +104,15 @@ class DetectCommand(BaseCommand):
                     try:
                         row["Vulnerabilities"] = " ".join(map(str, g.V(dep_v).In(Ns().vuln.affects)
                                                               .Out(Ns().vuln.info_link).All()))
+                    except IndexError:
+                        pass
+                    try:
+                        row["Ratings"] = " ".join(map(str, g.V(dep_v).In(Ns().vuln.affects)
+                                                            .Out(Ns().vuln.severity).All()))
+                    except IndexError:
+                        pass
+                    try:
+                        row["Top Dependency"] = g.V(dep_v).Out(Ns().fx.mc.file.top_dependency).All()[0]
                     except IndexError:
                         pass
 

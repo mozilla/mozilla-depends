@@ -41,6 +41,7 @@ class Ns(str):
                         "path": None,
                         "part_of": None,
                         "in_component": None,
+                        "top_dependency": None
                     },
                     "file_set": None,
                     "lib": {

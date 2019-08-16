@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import List
 
-from .knowledgegraph import Ns, KnowledgeGraph, Subject
+from .knowledgegraph import Ns, KnowledgeGraph, Subject, Entity
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ def learn_dependency(g: KnowledgeGraph, *,
                      language: str,
                      upstream_version: str or None = None,
                      top_path: Path or None = None,
+                     top_dependency: Subject or None = None,
                      tree_path: Path or None = None,
                      repository_url: str or None = None,
                      files: List[Path] or None = None,
@@ -58,6 +59,8 @@ def learn_dependency(g: KnowledgeGraph, *,
         dv.add(Ns().version.type, version_type)
         if rel_top_path is not None:
             dv.add(Ns().fx.mc.dir.path, str(rel_top_path))
+        if top_dependency is not None:
+            dv.add(Ns().fx.mc.file.top_dependency, top_dependency)
 
         # TODO: Consumers should take the following two from lib node
         if repository_url is not None:
@@ -121,3 +124,14 @@ def learn_vulnerability(g: KnowledgeGraph, *,
         vv.add(Ns().vuln.affects, dep)
 
     return vv
+
+
+def recall_dependencies(g: KnowledgeGraph, *, language: str, name: str, version: str) -> List[Entity]:
+    return list(g.V(name).In(Ns().fx.mc.lib.dep.name).Has(Ns().version.spec, version)
+                .Has(Ns().language.name, language).All())
+
+
+def enumerate_dependencies(g: KnowledgeGraph):
+    for d in g.V().In(Ns().fx.mc.lib.dep.name).All():
+        dependency_name = d.
+        yield d

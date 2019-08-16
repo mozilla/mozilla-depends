@@ -7,8 +7,8 @@
 from abc import abstractmethod, ABC, abstractproperty
 from pathlib import Path
 
-from ..knowledgegraph import KnowledgeGraph
-from ..repo_utils import HgRepo
+from mozdep.knowledgegraph import KnowledgeGraph
+from mozdep.repo_utils import HgRepo
 
 
 class DependencyDetector(ABC):

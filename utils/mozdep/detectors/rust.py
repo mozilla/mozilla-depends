@@ -10,7 +10,7 @@ from pathlib import Path
 import toml
 
 from .basedetector import DependencyDetector
-from ..knowledgegraph import Ns
+import mozdep.knowledge_utils as ku
 
 logger = logging.getLogger(__name__)
 
@@ -123,35 +123,34 @@ class CargoTomlDependencyDetector(DependencyDetector):
 
         logger.info(f"CargoTomlDependency adding `{rel_top_path}/Cargo.toml`")
 
-        # Get existing library node or create one
-        try:
-            lv = self.g.V(rp.name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "rust").All()[0]
-        except IndexError:
-            lv = self.g.new_subject()
-            lv.add(Ns().fx.mc.lib.name, rp.name)
-            lv.add(Ns().language.name, "rust")
-
-        dv = self.g.new_subject()
-        dv.add(Ns().fx.mc.lib.dep.name, rp.name)
-        dv.add(Ns().fx.mc.lib, lv)
-        dv.add(Ns().language.name, "rust")
-        dv.add(Ns().fx.mc.detector.name, self.name())
-        dv.add(Ns().version.spec, str(rp.version))
-        dv.add(Ns().version.type, "generic")
-        dv.add(Ns().fx.mc.dir.path, rel_top_path)
+        # # Get existing library node or create one
+        # try:
+        #     lv = self.g.V(rp.name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "rust").All()[0]
+        # except IndexError:
+        #     lv = self.g.new_subject()
+        #     lv.add(Ns().fx.mc.lib.name, rp.name)
+        #     lv.add(Ns().language.name, "rust")
+        #
+        # dv = self.g.new_subject()
+        # dv.add(Ns().fx.mc.lib.dep.name, rp.name)
+        # dv.add(Ns().fx.mc.lib, lv)
+        # dv.add(Ns().language.name, "rust")
+        # dv.add(Ns().fx.mc.detector.name, self.name())
+        # dv.add(Ns().version.spec, str(rp.version))
+        # dv.add(Ns().version.type, "generic")
+        # dv.add(Ns().fx.mc.dir.path, rel_top_path)
 
         repo = rp.repository
         if repo is not None:
             if not repo.startswith("http"):
                 repo = "https://github.com/" + repo.lstrip("/")
-            dv.add(Ns().gh.repo.url, repo)
 
-        # Create file references
-        for f in self.hg.find(start=rp.path):
-            rel_path = str(f.relative_to(self.hg.path))
-            fv = self.g.new_subject()
-            fv.add(Ns().fx.mc.file.path, rel_path)
-            fv.add(Ns().fx.mc.file.part_of, dv)
+        # # Create file references
+        # for f in self.hg.find(start=rp.path):
+        #     rel_path = str(f.relative_to(self.hg.path))
+        #     fv = self.g.new_subject()
+        #     fv.add(Ns().fx.mc.file.path, rel_path)
+        #     fv.add(Ns().fx.mc.file.part_of, dv)
 
         # TODO: extract dependencies from global Cargo.lock
         # key = rp.name + "-" + rp.version
@@ -159,3 +158,16 @@ class CargoTomlDependencyDetector(DependencyDetector):
         #     deps = list(self.state["deps"][key])
         # except KeyError:
         #     deps = []
+
+        _ = ku.learn_dependency(self.g,
+                                name=rp.name,
+                                version=str(rp.version),
+                                detector_name=self.name(),
+                                language="rust",
+                                version_type="_generic",
+                                upstream_version=None,  # FIXME: extract upstream version
+                                top_path=rp.path,
+                                tree_path=self.hg.path,
+                                repository_url=repo,  # FIXME: extract upstream repo
+                                files=list(self.hg.find(start=rp.path)),
+                                vulnerabilities=None)

@@ -9,13 +9,12 @@ import urllib.request
 from json import loads, decoder
 
 from .basedetector import DependencyDetector
-from ..knowledgegraph import Ns
+import mozdep.knowledge_utils as ku
 
 logger = logging.getLogger(__name__)
 
 
 class ThirdPartyAlertDetector(DependencyDetector):
-
     url = """https://raw.githubusercontent.com/mozilla-services/third-party-library-alert/master/libraries.json"""
 
     @staticmethod
@@ -54,45 +53,37 @@ class ThirdPartyAlertDetector(DependencyDetector):
 
         logger.info(f"ThirdPartyLibraryAlert adding `{loc.relative_to(self.hg.path)}`")
 
-        # Get existing library node or create one
-        try:
-            lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
-        except IndexError:
-            lv = self.g.new_subject()
-            lv.add(Ns().fx.mc.lib.name, library_name)
-            lv.add(Ns().language.name, "cpp")
+        # # Get existing library node or create one
+        # try:
+        #     lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
+        # except IndexError:
+        #     lv = self.g.new_subject()
+        #     lv.add(Ns().fx.mc.lib.name, library_name)
+        #     lv.add(Ns().language.name, "cpp")
+        #
+        # if loc.is_file():
+        #     rel_top_path = str(loc.relative_to(self.hg.path))
+        # else:
+        #     rel_top_path = str(loc.parent.relative_to(self.hg.path))
+        #
+        # dv = self.g.new_subject()
+        # dv.add(Ns().fx.mc.lib.dep.name, library_name)
+        # dv.add(Ns().fx.mc.lib, lv)
+        # dv.add(Ns().language.name, "cpp")
+        # dv.add(Ns().fx.mc.detector.name, self.name())
+        # dv.add(Ns().version.spec, library_version)
+        # dv.add(Ns().version.type, "unknown")
+        # dv.add(Ns().fx.mc.dir.path, rel_top_path)
+        #
+        # # TODO: extract version info
+        # # TODO: extract upstream repo info
 
-        if loc.is_file():
-            rel_top_path = str(loc.relative_to(self.hg.path))
-        else:
-            rel_top_path = str(loc.parent.relative_to(self.hg.path))
-
-        dv = self.g.new_subject()
-        dv.add(Ns().fx.mc.lib.dep.name, library_name)
-        dv.add(Ns().fx.mc.lib, lv)
-        dv.add(Ns().language.name, "cpp")
-        dv.add(Ns().fx.mc.detector.name, self.name())
-        dv.add(Ns().version.spec, library_version)
-        dv.add(Ns().version.type, "unknown")
-        dv.add(Ns().fx.mc.dir.path, rel_top_path)
-
-        # TODO: extract version info
-        # TODO: extract upstream repo info
-
+        files = []
         if loc.is_dir():
-            for f in self.hg.find(start=loc):
-                logger.debug(f"Processing directory {f}")
-                rel_path = str(f.relative_to(self.hg.path))
-                fv = self.g.new_subject()
-                fv.add(Ns().fx.mc.file.path, rel_path)
-                fv.add(Ns().fx.mc.file.part_of, dv)
+            files += list(self.hg.find(start=loc))
 
         elif loc.is_file():
-            logger.debug(f"Processing directory {loc}")
-            rel_path = str(loc.relative_to(self.hg.path))
-            fv = self.g.new_subject()
-            fv.add(Ns().fx.mc.file.path, rel_path)
-            fv.add(Ns().fx.mc.file.part_of, dv)
+            files.append(loc)
 
         else:
             # Does it glob?
@@ -100,14 +91,20 @@ class ThirdPartyAlertDetector(DependencyDetector):
             if len(matches) == 0:
                 logger.warning(f"Broken ThirdPartyLibraryAlert reference {loc}")
             else:
-                logger.critical(f"Globbing {loc}")
-                for f in matches:
-                    logger.debug(f"Processing file {f}")
-                    rel_path = str(f.relative_to(self.hg.path))
-                    fv = self.g.new_subject()
-                    fv.add(Ns().fx.mc.file.path, rel_path)
-                    fv.add(Ns().fx.mc.file.part_of, dv)
+                files += matches
 
+        _ = ku.learn_dependency(self.g,
+                                name=library_name,
+                                version=library_version,
+                                detector_name=self.name(),
+                                language="cpp",
+                                version_type="_generic",
+                                upstream_version=None,  # FIXME: extract upstream version
+                                top_path=loc.parent if loc.is_file() else loc,
+                                tree_path=self.hg.path,
+                                repository_url=None,  # FIXME: extract upstream repo
+                                files=files,
+                                vulnerabilities=None)
 
 # {
 #     "title" : "fdlibm",

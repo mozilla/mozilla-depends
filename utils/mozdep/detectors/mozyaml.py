@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 
 from .basedetector import DependencyDetector
-from ..knowledgegraph import Ns
+import mozdep.knowledge_utils as ku
 
 logger = logging.getLogger(__name__)
 
@@ -45,29 +45,42 @@ class MozYamlDependencyDetector(DependencyDetector):
 
         logger.info(f"MozYamlDependency adding `{rel_top_path}/moz.yaml`")
 
-        # Get existing library node or create one
-        try:
-            lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
-        except IndexError:
-            lv = self.g.new_subject()
-            lv.add(Ns().fx.mc.lib.name, library_name)
-            lv.add(Ns().language.name, "cpp")
+        # # Get existing library node or create one
+        # try:
+        #     lv = self.g.V(library_name).In(Ns().fx.mc.lib.name).Has(Ns().language.name, "cpp").All()[0]
+        # except IndexError:
+        #     lv = self.g.new_subject()
+        #     lv.add(Ns().fx.mc.lib.name, library_name)
+        #     lv.add(Ns().language.name, "cpp")
+        #
+        # dv = self.g.new_subject()
+        # dv.add(Ns().fx.mc.lib.dep.name, library_name)
+        # dv.add(Ns().fx.mc.lib, lv)
+        # dv.add(Ns().language.name, "cpp")
+        # dv.add(Ns().fx.mc.detector.name, self.name())
+        # dv.add(Ns().version.spec, library_version)
+        # dv.add(Ns().version.type, "generic")
+        # dv.add(Ns().fx.mc.dir.path, rel_top_path)
+        #
+        # # TODO: extract upstream repo info
+        #
+        # # Create file references
+        # for f in file_path.parent.rglob("*"):
+        #     logger.debug(f"Processing file {f}")
+        #     rel_path = str(f.relative_to(self.hg.path))
+        #     fv = self.g.new_subject()
+        #     fv.add(Ns().fx.mc.file.path, rel_path)
+        #     fv.add(Ns().fx.mc.file.part_of, dv)
 
-        dv = self.g.new_subject()
-        dv.add(Ns().fx.mc.lib.dep.name, library_name)
-        dv.add(Ns().fx.mc.lib, lv)
-        dv.add(Ns().language.name, "cpp")
-        dv.add(Ns().fx.mc.detector.name, self.name())
-        dv.add(Ns().version.spec, library_version)
-        dv.add(Ns().version.type, "generic")
-        dv.add(Ns().fx.mc.dir.path, rel_top_path)
-
-        # TODO: extract upstream repo info
-
-        # Create file references
-        for f in file_path.parent.rglob("*"):
-            logger.debug(f"Processing file {f}")
-            rel_path = str(f.relative_to(self.hg.path))
-            fv = self.g.new_subject()
-            fv.add(Ns().fx.mc.file.path, rel_path)
-            fv.add(Ns().fx.mc.file.part_of, dv)
+        _ = ku.learn_dependency(self.g,
+                                name=library_name,
+                                version=library_version,
+                                detector_name=self.name(),
+                                language="cpp",
+                                version_type="_generic",
+                                upstream_version=None,  # FIXME: extract upstream version
+                                top_path=file_path.parent,
+                                tree_path=self.hg.path,
+                                repository_url=None,  # FIXME: extract upstream repo
+                                files=list(file_path.parent.rglob("*")),
+                                vulnerabilities=None)
