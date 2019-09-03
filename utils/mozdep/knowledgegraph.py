@@ -99,7 +99,7 @@ class Ns(str):
         },
     }
 
-    _index = None
+    _index: list or None = None
 
     def __new__(cls, content=None, *, check=True):
         # logger.debug(f"Ns.__new__ content={content} check={check}")
@@ -157,6 +157,8 @@ class Ns(str):
     @classmethod
     def by_index(cls, n: int) -> "Ns":
         """Return namespace object associated with an index"""
+        if cls._index is None:
+            cls._index = list(cls.iter())
         return deepcopy(cls._index[n])
 
     @property
@@ -407,7 +409,7 @@ class KnowledgeGraph(object):
         if type(entity) is str:
             entity = self.literal(entity)
         if type(entity) is Subject:
-            self.g.remove_edge(subject, entity, predicate=predicate)
+            self.g.remove_edge(subject, entity, key=predicate)
         elif type(entity) is Literal:
             self.g.node[subject][predicate].remove(entity)
             self.literals_index[entity][predicate].remove((subject, predicate, entity))

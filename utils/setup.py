@@ -22,8 +22,7 @@ INSTALL_REQUIRES = [
 
 TESTS_REQUIRE = [
     "coverage",
-    "pytest",
-    "pytest-bdd",
+    "pytest==5.0",
     "pytest-codestyle"
 ]
 
@@ -35,8 +34,7 @@ SETUP_REQUIRES = [
 DEV_REQUIRES = [
     "coverage",
     "pycodestyle",
-    "pytest",
-    "pytest-bdd",
+    "pytest==5.0",
     "pytest-codestyle",
     "pytest-runner"
 ]

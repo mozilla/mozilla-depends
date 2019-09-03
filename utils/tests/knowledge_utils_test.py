@@ -101,3 +101,23 @@ def test_dependency_learning():
                                vulnerabilities=None)
 
     assert dvc == dvcc, "adding same dependency doesn't create new node"
+
+    assert ku.recall_dependencies(g, language="js", name="dep_a", version="0.0.1") == [dva]
+    assert ku.recall_dependencies(g, language="js", name="dep_a", version="0.0.2") == [dvaa]
+    assert ku.recall_dependencies(g, language="js", name="dep_b", version="0.0.1") == [dvb]
+    assert ku.recall_dependencies(g, language="js", name="dep_b", version="0.0.2") == [dvbb]
+    assert ku.recall_dependencies(g, language="cpp", name="dep_c", version="0.0.1") == [dvc]
+
+    all_deps = [dva, dvaa, dvb, dvbb, dvc]
+    all_deps_set = set(all_deps)
+    e = set(ku.enumerate_dependencies(g))
+    assert e == all_deps_set
+
+    dump = {}
+    for subject in all_deps:
+        for from_subject, relation, to_entity in subject.relations_from():
+            if from_subject not in dump:
+                dump[from_subject] = {}
+            assert relation not in dump[from_subject]
+            dump[from_subject][relation] = to_entity
+    assert dump == {}

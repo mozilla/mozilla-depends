@@ -133,5 +133,5 @@ def recall_dependencies(g: KnowledgeGraph, *, language: str, name: str, version:
 
 def enumerate_dependencies(g: KnowledgeGraph):
     for d in g.V().In(Ns().fx.mc.lib.dep.name).All():
-        dependency_name = d.
+        # dependency_name = d.
         yield d

@@ -6,3 +6,6 @@ utils/package-lock.json
 .idea/
 *.egg-info/
 .eggs/
+.vscode
+.pytest_cache/
+

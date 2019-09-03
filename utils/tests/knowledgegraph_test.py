@@ -26,7 +26,7 @@ def test_knowledge_graph_namespace():
     assert set(g.V().Has(mk.Ns().fx.mc.file.path, "foo/baz").All()) == {v_baz.mid}
 
     with pytest.raises(mk.NamespaceError):
-        _ = g.add(mk.Ns().fx.mc.file.unknown, "foo/bam")
+        _ = g.add(g.new_subject(), mk.Ns().fx.mc.file.unknown, "foo/bam")
 
 
 def test_knowledge_graph_objects():
